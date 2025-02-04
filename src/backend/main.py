@@ -3,7 +3,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, Fil
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_, and_
+from sqlalchemy import select, or_, and_, func
 import requests
 from models import Content, User, Interaction
 import auth
@@ -81,17 +81,26 @@ async def search_arxiv(
     try:
         # First try to find cached results
         search_terms = query.lower().split()
-        cached_query = select(Content).where(
+        cached_query = select(
+            Content.id,
+            Content.title,
+            Content.abstract,
+            Content.source,
+            Content.external_id,
+            Content.url,
+            Content.published_date
+        ).where(
             or_(*[
-                Content.title.ilike(f'%{term}%') |
-                Content.abstract.ilike(f'%{term}%')
+                or_(
+                    Content.title.ilike(f'%{term}%'),
+                    Content.abstract.ilike(f'%{term}%')
+                )
                 for term in search_terms
             ])
         ).order_by(Content.published_date.desc())
-
         
         cached_results = await db.execute(cached_query)
-        cached_articles = cached_results.scalars().all()
+        cached_articles = cached_results.all()
 
         # If we have cached results, return them
         if cached_articles:
@@ -105,13 +114,13 @@ async def search_arxiv(
                         "url": article.url,
                         "published_date": article.published_date.isoformat() if article.published_date else None
                     }
-                    for article in cached_articles
+                    for article in cached_articles[:max_results]
                 ],
-                "has_more": False,
+                "has_more": len(cached_articles) > max_results,
                 "total": len(cached_articles)
             }
 
-        # If no cached results, fetch from arXiv API
+        # If no cached results or error, fetch from arXiv API
         base_url = "http://export.arxiv.org/api/query"
         params = {
             "search_query": f"all:{query}",
@@ -124,7 +133,10 @@ async def search_arxiv(
         response = requests.get(base_url, params=params)
         
         if response.status_code != 200:
-            raise HTTPException(status_code=500, detail="Error fetching from arXiv")
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Error fetching from arXiv: {response.status_code}"
+            )
         
         stored_articles = await process_and_store_arxiv_results(response.text, db)
         
@@ -145,7 +157,44 @@ async def search_arxiv(
         }
     except Exception as e:
         print(f"Search error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        # If database error occurs, try fetching directly from arXiv
+        try:
+            base_url = "http://export.arxiv.org/api/query"
+            params = {
+                "search_query": f"all:{query}",
+                "start": 0,
+                "max_results": max_results,
+                "sortBy": "lastUpdatedDate",
+                "sortOrder": "descending"
+            }
+            
+            response = requests.get(base_url, params=params)
+            
+            if response.status_code != 200:
+                raise HTTPException(
+                    status_code=500, 
+                    detail=f"Error fetching from arXiv: {response.status_code}"
+                )
+            
+            stored_articles = await process_and_store_arxiv_results(response.text, db)
+            
+            return {
+                "items": [
+                    {
+                        "id": article.id,
+                        "title": article.title,
+                        "abstract": article.abstract,
+                        "source": "arXiv",
+                        "url": article.url,
+                        "published_date": article.published_date.isoformat() if article.published_date else None
+                    }
+                    for article in stored_articles
+                ],
+                "has_more": False,
+                "total": len(stored_articles)
+            }
+        except Exception as nested_e:
+            raise HTTPException(status_code=500, detail=str(nested_e))
 
 @app.get("/search/core")
 def search_core(query: str, max_results: int = 10):
@@ -185,45 +234,44 @@ async def get_content(
     db: AsyncSession = Depends(get_articles_db)
 ):
     try:
-        skip = (page - 1) * limit
-        print(f"Fetching content: page={page}, limit={limit}, skip={skip}")
+        offset = (page - 1) * limit
         
         # Get total count
-        query = select(Content)
-        result = await db.execute(query)
-        items = result.scalars().all()
-        total = len(items)
-        print(f"Total items in database: {total}")
+        count_query = select(func.count(Content.id))
+        total_count = await db.execute(count_query)
+        total = total_count.scalar()
         
-
-        # Get paginated results
-        query = select(Content).\
-            order_by(Content.published_date.desc()).\
-            offset(skip).\
-            limit(limit)
-
+        # Get paginated content without paper_metadata
+        query = select(
+            Content.id,
+            Content.title,
+            Content.abstract,
+            Content.source,
+            Content.external_id,
+            Content.url,
+            Content.published_date
+        ).order_by(Content.published_date.desc()).offset(offset).limit(limit)
         
         result = await db.execute(query)
-        items = result.scalars().all()
-        print(f"Items returned: {len(items)}")
+        contents = result.all()
         
         return {
             "items": [
                 {
-                    "id": item.id,
-                    "title": item.title,
-                    "abstract": item.abstract,
-                    "source": item.source,
-                    "url": item.url,
-                    "published_date": item.published_date.isoformat() if item.published_date else None
+                    "id": content.id,
+                    "title": content.title,
+                    "abstract": content.abstract,
+                    "source": content.source,
+                    "url": content.url,
+                    "published_date": content.published_date.isoformat() if content.published_date else None,
                 }
-                for item in items
+                for content in contents
             ],
-            "total": total,
-            "has_more": (skip + limit) < total
+            "has_more": (offset + limit) < total,
+            "total": total
         }
     except Exception as e:
-        print(f"Error fetching content: {e}")
+        print(f"Error fetching content: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/login", response_class=HTMLResponse)

@@ -50,7 +50,8 @@ export const Feed: React.FC = () => {
       });
       
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
       }
       
       const data = await response.json();
@@ -63,9 +64,19 @@ export const Feed: React.FC = () => {
         }
         setCurrentPage(page);
         setHasMore(data.has_more);
+      } else {
+        console.error('Invalid data format:', data);
+        if (page === 1) {
+          setContents([]);
+          setHasMore(false);
+        }
       }
     } catch (error) {
       console.error('Error fetching content:', error);
+      if (page === 1) {
+        setContents([]);
+        setHasMore(false);
+      }
     } finally {
       setLoading(false);
     }
@@ -89,16 +100,17 @@ export const Feed: React.FC = () => {
         }
       });
       
-      if (!response.ok) {
-        throw new Error('Search failed');
-      }
-      
       const data = await response.json();
+      
+      if (!response.ok) {
+        console.error('Search error:', data);
+        throw new Error(data.detail || 'Search failed');
+      }
       
       if (data.items && Array.isArray(data.items)) {
         setContents(data.items);
         setCurrentPage(1);
-        setHasMore(data.has_more);
+        setHasMore(data.has_more || false);
       } else {
         setContents([]);
         setHasMore(false);
