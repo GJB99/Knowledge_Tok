@@ -1,19 +1,15 @@
 .feed-container {
-    height: 100vh;
+    height: calc(100vh - 70px);
     width: 100%;
+    max-width: 800px;
     display: flex;
     flex-direction: column;
     align-items: center;
     background-color: #f5f5f5;
     overflow-y: auto;
-    margin-top: 70px;
-    height: calc(100vh - 70px);
-    padding: 20px;
-    width: 100%;
-    max-width: 800px;
     margin: 70px auto 0;
+    padding: 20px;
 }
-
 
 .content-card {
   width: 100%;
@@ -100,16 +96,6 @@
   z-index: 1000;
 }
 
-.profile-button {
-  background: none;
-  border: none;
-  font-size: 24px;
-  color: #333;
-  cursor: pointer;
-  padding: 8px;
-  border-radius: 50%;
-}
-
 .profile-container {
   padding: 20px;
   margin-top: 60px;
@@ -164,10 +150,44 @@
   z-index: 1000;
 }
 
+.header-buttons {
+  display: flex;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.home-button,
+.profile-button,
+.logout-button {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: none;
+  background: #f0f2f5;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s;
+}
+
+.home-button i,
+.profile-button i,
+.logout-button i {
+  font-size: 20px;
+  color: #1da1f2;
+}
+
+.profile-button:hover,
+.home-button:hover,
+.logout-button:hover {
+  background: #e6e9ec;
+}
+
 .search-container {
   flex: 1;
-  max-width: 600px;
-  margin: 0 auto;
+  max-width: 500px;
+  margin: 0 20px;
   display: flex;
   gap: 10px;
 }
@@ -190,25 +210,8 @@
   font-weight: 500;
 }
 
-.profile-button {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  border: none;
-  background: #f0f2f5;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-left: 20px;
-}
-
-.profile-button i {
-  font-size: 20px;
-  color: #666;
-}
-
 .loading {
+  margin: 20px;
   padding: 20px;
   text-align: center;
   color: #666;
@@ -227,35 +230,11 @@
   font-size: 1.1rem;
 }
 
-.loading {
-  margin: 20px;
-  text-align: center;
-  color: #666;
-}
-
-.header-buttons {
-  display: flex;
-  gap: 10px;
-}
-
-.logout-button {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  border: none;
-  background: #f0f2f5;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.logout-button i {
-  font-size: 20px;
-  color: #666;
-}
-
 .fa-rotate-90 {
     filter: progid:DXImageTransform.Microsoft.BasicImage(rotation=1);
     transform: rotate(90deg);
+}
+
+.home-button:hover {
+  background: #e6e9ec;
 } 

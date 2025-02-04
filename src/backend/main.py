@@ -1,23 +1,26 @@
-from fastapi import FastAPI, Depends, HTTPException, status, Request, Response
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi import FastAPI, Depends, HTTPException, status, Request, Response, BackgroundTasks
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_, and_
 import requests
-from . import models, auth
-from .database import get_db, init_db, AsyncSessionLocal, get_articles_db
+from models import Content, User, Interaction
+import auth
+from database import get_db, init_db, AsyncSessionLocal, get_articles_db
 import asyncio
-from datetime import datetime
-from .seed import seed_initial_content
+from datetime import datetime, timedelta
+from seed import seed_initial_content
 from fastapi_mail import FastMail, MessageSchema, ConnectionConfig
+
 import secrets
 from dotenv import load_dotenv
 import os
 import json
 import io
 from pydantic import BaseModel
-from .utils import process_and_store_arxiv_results
+from utils import process_and_store_arxiv_results
+from fastapi.staticfiles import StaticFiles
 
 app = FastAPI()
 
@@ -37,7 +40,7 @@ async def startup_event():
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8000"],  # Replace with your frontend URL
+    allow_origins=["http://localhost:3000", "http://localhost:8000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -55,256 +58,12 @@ mail_config = ConnectionConfig(
     USE_CREDENTIALS=True
 )
 
+# Mount static files
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
-    html_content = '''
-    <!DOCTYPE html>
-    <html>
-        <head>
-            <title>Academic Feed App</title>
-            <meta charset="utf-8">
-            <meta name="viewport" content="width=device-width,initial-scale=1">
-            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
-            <style>
-                body { 
-                    font-family: Arial, sans-serif; 
-                    margin: 0; 
-                    padding: 0;
-                    background-color: #f0f2f5;
-                }
-                .header {
-                    position: fixed;
-                    top: 0;
-                    width: 100%;
-                    background: white;
-                    padding: 10px 20px;
-                    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-                    z-index: 1000;
-                }
-                .search-bar {
-                    max-width: 600px;
-                    margin: 0 auto;
-                    display: flex;
-                    gap: 10px;
-                }
-                .search-bar input {
-                    flex: 1;
-                    padding: 10px;
-                    border: 1px solid #ddd;
-                    border-radius: 20px;
-                    font-size: 16px;
-                }
-                .search-bar button {
-                    padding: 10px 20px;
-                    background: #3498db;
-                    color: white;
-                    border: none;
-                    border-radius: 20px;
-                    cursor: pointer;
-                }
-                .content-container {
-                    margin-top: 70px;
-                    padding: 10px;
-                    overflow-y: auto;
-                }
-                .content-item {
-                    padding: 20px;
-                    background: white;
-                    margin: 10px auto;
-                    max-width: 600px;
-                    border-radius: 12px;
-                    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-                    position: relative;
-                }
-                .content-title {
-                    font-size: 24px;
-                    margin-bottom: 15px;
-                }
-                .content-abstract {
-                    font-size: 16px;
-                    line-height: 1.6;
-                    color: #333;
-                }
-                .content-source {
-                    position: absolute;
-                    bottom: 20px;
-                    left: 20px;
-                    color: #666;
-                }
-                .interaction-buttons {
-                    position: absolute;
-                    right: 20px;
-                    bottom: 20px;
-                    display: flex;
-                    flex-direction: column;
-                    gap: 15px;
-                }
-                .icon-button {
-                    background: none;
-                    border: none;
-                    cursor: pointer;
-                    font-size: 24px;
-                    padding: 10px;
-                    color: #333;
-                }
-                .icon-button:hover {
-                    color: #3498db;
-                }
-                .icon-button.liked .fa-heart {
-                    color: #ff4b4b;
-                }
-                .icon-button.saved .fa-bookmark {
-                    color: #4b6bff;
-                }
-                .icon-button.active {
-                    color: #3498db;
-                }
-                .icon-button.active .fa-heart {
-                    color: #ff4b4b;
-                }
-                .icon-button.active .fa-bookmark {
-                    color: #4b6bff;
-                }
-                .content-item {
-                    position: relative;
-                    margin-bottom: 20px;
-                }
-                .no-content {
-                    text-align: center;
-                    padding: 20px;
-                    color: #666;
-                }
-            </style>
-        </head>
-        <body>
-            <div class="header">
-                <div class="search-bar">
-                    <input type="text" placeholder="Search academic papers..." id="searchInput">
-                    <button onclick="performSearch()">Search</button>
-                </div>
-            </div>
-            <div class="content-container" id="contentContainer">
-                <!-- Content will be dynamically loaded here -->
-            </div>
-            <script>
-                let currentPage = 1;
-                const contentContainer = document.getElementById('contentContainer');
-                
-                async function loadContent(page = 1) {
-                    try {
-                        const response = await fetch(`/api/content?page=${page}&limit=10`);
-                        if (!response.ok) {
-                            throw new Error('Failed to fetch content');
-                        }
-                        const data = await response.json();
-                        
-                        // Check if data.items exists and is an array
-                        if (data.items && Array.isArray(data.items)) {
-                            data.items.forEach(item => {
-                                const contentItem = createContentItem(item);
-                                contentContainer.appendChild(contentItem);
-                            });
-                        } else {
-                            console.error('Invalid data format:', data);
-                        }
-                    } catch (error) {
-                        console.error('Error loading content:', error);
-                    }
-                }
-                
-                function createContentItem(item) {
-                    const div = document.createElement('div');
-                    div.className = 'content-item';
-                    div.innerHTML = `
-                        <h2 class="content-title">${item.title || 'No Title'}</h2>
-                        <p class="content-abstract">${item.abstract || 'No Abstract'}</p>
-                        <div class="content-source">Source: ${item.source || 'Unknown'}</div>
-                        <div class="interaction-buttons">
-                            <button class="icon-button" onclick="handleInteraction(event, '${item.id}', 'like')">
-                                <i class="fas fa-heart"></i>
-                            </button>
-                            <button class="icon-button" onclick="handleInteraction(event, '${item.id}', 'save')">
-                                <i class="fas fa-bookmark"></i>
-                            </button>
-                            <button class="icon-button" onclick="handleInteraction(event, '${item.id}', 'share')">
-                                <i class="fas fa-share"></i>
-                            </button>
-                        </div>
-                    `;
-                    return div;
-                }
-                
-                async function performSearch() {
-                    const query = document.getElementById('searchInput').value;
-                    if (!query) return;
-                    
-                    contentContainer.innerHTML = '';
-                    try {
-                        const response = await fetch(`/search/arxiv?query=${encodeURIComponent(query)}`);
-                        const data = await response.json();
-                        
-                        if (data.items && Array.isArray(data.items)) {
-                            data.items.forEach(item => {
-                                const contentItem = createContentItem(item);
-                                contentContainer.appendChild(contentItem);
-                            });
-                        } else {
-                            console.error('Invalid data format:', data);
-                            contentContainer.innerHTML = '<div class="no-content">No results found</div>';
-                        }
-                    } catch (error) {
-                        console.error('Error searching:', error);
-                        contentContainer.innerHTML = '<div class="no-content">Error searching papers</div>';
-                    }
-                }
-                
-                loadContent();
-                
-                contentContainer.addEventListener('scroll', () => {
-                    if (contentContainer.scrollTop + contentContainer.clientHeight >= contentContainer.scrollHeight - 100) {
-                        currentPage++;
-                        loadContent(currentPage);
-                    }
-                });
-                
-                async function handleInteraction(event, contentId, type) {
-                    event.preventDefault();
-                    
-                    const token = localStorage.getItem('token');
-                    if (!token) {
-                        alert('Please login to interact with content');
-                        window.location.href = '/login';
-                        return;
-                    }
-
-                    try {
-                        const response = await fetch('/api/interactions', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'Authorization': `Bearer ${token}`
-                            },
-                            body: JSON.stringify({
-                                content_id: contentId,
-                                interaction_type: type
-                            })
-                        });
-
-                        if (response.ok) {
-                            const button = event.currentTarget;
-                            button.classList.toggle('active');
-                        } else {
-                            console.error('Failed to handle interaction');
-                        }
-                    } catch (error) {
-                        console.error('Error:', error);
-                    }
-                }
-            </script>
-        </body>
-    </html>
-    '''
-    return HTMLResponse(content=html_content)
+    return FileResponse('static/index.html')
 
 @app.get("/favicon.ico")
 async def favicon():
@@ -322,13 +81,14 @@ async def search_arxiv(
     try:
         # First try to find cached results
         search_terms = query.lower().split()
-        cached_query = select(models.Content).where(
+        cached_query = select(Content).where(
             or_(*[
-                models.Content.title.ilike(f'%{term}%') |
-                models.Content.abstract.ilike(f'%{term}%')
+                Content.title.ilike(f'%{term}%') |
+                Content.abstract.ilike(f'%{term}%')
                 for term in search_terms
             ])
-        ).order_by(models.Content.published_date.desc())
+        ).order_by(Content.published_date.desc())
+
         
         cached_results = await db.execute(cached_query)
         cached_articles = cached_results.scalars().all()
@@ -403,10 +163,11 @@ async def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: AsyncSession = Depends(get_db)
 ):
-    query = select(models.User).where(models.User.username == form_data.username)
+    query = select(User).where(User.username == form_data.username)
     result = await db.execute(query)
     user = result.scalar_one_or_none()
     
+
     if not user or not auth.verify_password(form_data.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -428,17 +189,19 @@ async def get_content(
         print(f"Fetching content: page={page}, limit={limit}, skip={skip}")
         
         # Get total count
-        query = select(models.Content)
+        query = select(Content)
         result = await db.execute(query)
         items = result.scalars().all()
         total = len(items)
         print(f"Total items in database: {total}")
         
+
         # Get paginated results
-        query = select(models.Content).\
-            order_by(models.Content.published_date.desc()).\
+        query = select(Content).\
+            order_by(Content.published_date.desc()).\
             offset(skip).\
             limit(limit)
+
         
         result = await db.execute(query)
         items = result.scalars().all()
@@ -472,6 +235,7 @@ async def login_page():
             <title>Login - Academic Feed App</title>
             <meta charset="utf-8">
             <meta name="viewport" content="width=device-width,initial-scale=1">
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
             <style>
                 body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
                 .auth-form { max-width: 300px; margin: 100px auto; padding: 20px; background: #f5f5f5; border-radius: 8px; }
@@ -644,19 +408,21 @@ async def register(
             raise HTTPException(status_code=400, detail="Missing required fields")
         
         # Check if user exists
-        query = select(models.User).where(
-            or_(models.User.email == email, models.User.username == username)
+        query = select(User).where(
+            or_(User.email == email, User.username == username)
         )
         result = await db.execute(query)
+
         if result.scalar_one_or_none():
             raise HTTPException(status_code=400, detail="Username or email already registered")
         
         # Create new user
         hashed_password = auth.get_password_hash(password)
         verification_token = secrets.token_urlsafe(32)
-        new_user = models.User(
+        new_user = User(
             email=email,
             username=username,
+
             password_hash=hashed_password,
             is_verified=False,
             verification_token=verification_token
@@ -675,10 +441,11 @@ async def register(
 
 @app.get("/verify/{token}")
 async def verify_email(token: str, db: AsyncSession = Depends(get_db)):
-    query = select(models.User).where(models.User.verification_token == token)
+    query = select(User).where(User.verification_token == token)
     result = await db.execute(query)
     user = result.scalar_one_or_none()
     
+
     if not user:
         raise HTTPException(status_code=400, detail="Invalid verification token")
     
@@ -699,16 +466,18 @@ async def verify_email(token: str, db: AsyncSession = Depends(get_db)):
 async def get_user_interactions(
     type: str,
     db: AsyncSession = Depends(get_db),
-    current_user: models.User = Depends(auth.get_current_user)
+    current_user: User = Depends(auth.get_current_user)
 ):
     try:
-        query = select(models.Interaction, models.Content).\
-            join(models.Content).\
+        query = select(Interaction, Content).\
+            join(Content).\
             where(
                 and_(
-                    models.Interaction.user_id == current_user.id,
-                    models.Interaction.interaction_type == type
+                    Interaction.user_id == current_user.id,
+
+                    Interaction.interaction_type == type
                 )
+
             )
         result = await db.execute(query)
         interactions = result.all()
@@ -737,15 +506,18 @@ class InteractionCreate(BaseModel):
 async def handle_interaction(
     interaction: InteractionCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: models.User = Depends(auth.get_current_user)
+    current_user: User = Depends(auth.get_current_user)
 ):
     try:
         # Check if interaction already exists
-        query = select(models.Interaction).where(
+
+        query = select(Interaction).where(
             and_(
-                models.Interaction.user_id == current_user.id,
-                models.Interaction.content_id == interaction.content_id,
-                models.Interaction.interaction_type == interaction.interaction_type
+                Interaction.user_id == current_user.id,
+
+                Interaction.content_id == interaction.content_id,
+                Interaction.interaction_type == interaction.interaction_type
+
             )
         )
         result = await db.execute(query)
@@ -756,11 +528,12 @@ async def handle_interaction(
             await db.delete(existing_interaction)
         else:
             # Create new interaction
-            new_interaction = models.Interaction(
+            new_interaction = Interaction(
                 user_id=current_user.id,
                 content_id=interaction.content_id,
                 interaction_type=interaction.interaction_type
             )
+
             db.add(new_interaction)
 
         await db.commit()
@@ -773,7 +546,7 @@ async def handle_interaction(
 async def get_db_contents(db: AsyncSession = Depends(get_articles_db)):
     try:
         # Get all content
-        query = select(models.Content)
+        query = select(Content)
         result = await db.execute(query)
         content = result.scalars().all()
         
@@ -793,4 +566,75 @@ async def get_db_contents(db: AsyncSession = Depends(get_articles_db)):
         }
     except Exception as e:
         print(f"Error fetching DB contents: {e}")
-        raise HTTPException(status_code=500, detail=str(e)) 
+        raise HTTPException(status_code=500, detail=str(e))
+
+class PasswordResetRequest(BaseModel):
+    email: str
+
+@app.post("/auth/reset-password-request")
+async def request_password_reset(
+    request: PasswordResetRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db)
+):
+    query = select(User).where(User.email == request.email)
+    result = await db.execute(query)
+    user = result.scalar_one_or_none()
+    
+    if user:
+        reset_token = secrets.token_urlsafe(32)
+        user.reset_token = reset_token
+        user.reset_token_expires = datetime.utcnow() + timedelta(hours=24)
+        await db.commit()
+        
+        reset_link = f"http://localhost:8000/auth/reset-password/{reset_token}"
+        email_content = f"""
+        Hello,
+        
+        You have requested to reset your password. Click the link below to reset it:
+        
+        {reset_link}
+        
+        If you didn't request this, please ignore this email.
+        
+        The link will expire in 24 hours.
+        """
+        
+        # For testing, just print the email content
+        print(f"Would send email to {request.email}:\n{email_content}")
+        
+        # TODO: Implement actual email sending
+        # background_tasks.add_task(
+        #     send_email,
+        #     recipient_email=request.email,
+        #     subject="Password Reset Request",
+        #     content=email_content
+        # )
+    
+    return {"message": "If an account exists with this email, you will receive password reset instructions."}
+
+@app.post("/auth/reset-password/{token}")
+async def reset_password(
+    token: str,
+    new_password: str,
+    db: AsyncSession = Depends(get_db)
+):
+    query = select(User).where(
+        and_(
+            User.reset_token == token,
+            User.reset_token_expires > datetime.utcnow()
+        )
+    )
+    result = await db.execute(query)
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+    
+    hashed_password = auth.get_password_hash(new_password)
+    user.hashed_password = hashed_password
+    user.reset_token = None
+    user.reset_token_expires = None
+    await db.commit()
+    
+    return {"message": "Password reset successful"} 

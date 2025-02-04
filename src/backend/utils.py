@@ -1,8 +1,9 @@
 from datetime import datetime
-from . import models
+from models import Content
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 import xml.etree.ElementTree as ET
+
 
 async def process_and_store_arxiv_results(xml_data: str, db: AsyncSession):
     try:
@@ -17,20 +18,22 @@ async def process_and_store_arxiv_results(xml_data: str, db: AsyncSession):
             published = entry.find('atom:published', namespace).text
             
             # Check if article already exists
-            query = select(models.Content).where(
-                models.Content.external_id == url
+            query = select(Content).where(
+                Content.external_id == url
             )
             result = await db.execute(query)
             existing_article = result.scalar_one_or_none()
             
+
             if not existing_article:
-                article = models.Content(
+                article = Content(
                     title=title,
                     abstract=abstract,
                     source='arxiv',
                     external_id=url,
                     url=url,
                     published_date=datetime.fromisoformat(published.replace('Z', '+00:00'))
+
                 )
                 db.add(article)
                 stored_articles.append(article)

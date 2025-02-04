@@ -9,6 +9,8 @@ A modern academic content discovery platform that aggregates research papers and
   - Hybrid search combining keyword matching and semantic similarity
   - Real-time content updates from arXiv
   - Content caching for improved performance
+  - Rich paper metadata including authors and categories
+  - Multi-category paper fetching
 
 - **Interactive Feed:**
   - Infinite scroll implementation
@@ -20,6 +22,12 @@ A modern academic content discovery platform that aggregates research papers and
   - JWT-based authentication
   - Personal reading lists
   - Interaction history (likes and bookmarks)
+
+### Database Scripts
+- **Enrichment:** `python src/backend/scripts/enrich_existing_data.py`
+  - Adds metadata to existing papers
+- **Population:** `python src/backend/scripts/populate_db.py`
+  - Fetches and stores papers from multiple arXiv categories
 
 ## Tech Stack
 

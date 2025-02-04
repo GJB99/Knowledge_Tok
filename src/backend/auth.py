@@ -6,8 +6,8 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 
-from .database import get_db
-from .models import User
+from database import get_db
+from models import User
 
 # Security configuration
 SECRET_KEY = "your-secret-key-here"  # In production, use environment variable

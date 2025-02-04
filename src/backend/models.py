@@ -1,6 +1,6 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Table, Boolean
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Table, Boolean, JSON
 from sqlalchemy.orm import relationship
-from .database import Base
+from database import Base
 from datetime import datetime
 
 # Association table for user interests
@@ -43,6 +43,7 @@ class Content(Base):
     external_id = Column(String)
     url = Column(String)
     published_date = Column(DateTime)
+    paper_metadata = Column(JSON)
     
     # Relationships
     interactions = relationship("Interaction", back_populates="content")
