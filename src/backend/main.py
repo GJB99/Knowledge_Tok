@@ -645,46 +645,41 @@ async def create_interaction(
     db: AsyncSession = Depends(get_db)
 ):
     try:
-        user = current_user
+        # Validate interaction type
+        valid_types = ['like', 'save', 'not_interested']
+        if interaction.interaction_type not in valid_types:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid interaction type. Must be one of: {', '.join(valid_types)}"
+            )
 
         # Check if interaction already exists
-        existing_query = select(Interaction).where(
+        query = select(Interaction).where(
             and_(
-                Interaction.user_id == user.id,
+                Interaction.user_id == current_user.id,
                 Interaction.content_id == interaction.content_id,
                 Interaction.interaction_type == interaction.interaction_type
             )
         )
-        existing_result = await db.execute(existing_query)
-        existing_interaction = existing_result.scalar_one_or_none()
+        result = await db.execute(query)
+        existing_interaction = result.scalar_one_or_none()
 
         if existing_interaction:
-            # If interaction exists, remove it (toggle off)
+            # Remove the interaction if it exists
             await db.delete(existing_interaction)
             await db.commit()
-            return {
-                "status": "success",
-                "action": "removed",
-                "interaction_type": interaction.interaction_type,
-                "content_id": interaction.content_id
-            }
+            return {"action": "removed"}
+        else:
+            # Create new interaction
+            new_interaction = Interaction(
+                user_id=current_user.id,
+                content_id=interaction.content_id,
+                interaction_type=interaction.interaction_type
+            )
+            db.add(new_interaction)
+            await db.commit()
+            return {"action": "added"}
 
-        # Create new interaction
-        new_interaction = Interaction(
-            user_id=user.id,
-            content_id=interaction.content_id,
-            interaction_type=interaction.interaction_type
-        )
-
-        db.add(new_interaction)
-        await db.commit()
-
-        return {
-            "status": "success",
-            "action": "added",
-            "interaction_type": interaction.interaction_type,
-            "content_id": interaction.content_id
-        }
     except Exception as e:
         await db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
@@ -828,7 +823,8 @@ async def get_interaction_status(
         
         return {
             "isLiked": any(i.interaction_type == "like" for i in interactions),
-            "isSaved": any(i.interaction_type == "save" for i in interactions)
+            "isSaved": any(i.interaction_type == "save" for i in interactions),
+            "isNotInterested": any(i.interaction_type == "not_interested" for i in interactions)
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) 

@@ -16,6 +16,7 @@ type MotionDivProps = HTMLMotionProps<"div"> & { className?: string };
 export const ContentCard: React.FC<ContentCardProps> = ({ content }) => {
   const [isLiked, setIsLiked] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
+  const [isNotInterested, setIsNotInterested] = useState(false);
 
   const checkInteractionStatus = async () => {
     try {
@@ -40,6 +41,7 @@ export const ContentCard: React.FC<ContentCardProps> = ({ content }) => {
       const data = await response.json();
       setIsLiked(data.isLiked);
       setIsSaved(data.isSaved);
+      setIsNotInterested(data.isNotInterested);
     } catch (error) {
       console.error('Error checking interaction status:', error);
     }
@@ -49,7 +51,7 @@ export const ContentCard: React.FC<ContentCardProps> = ({ content }) => {
     checkInteractionStatus();
   }, [content.id]);
 
-  const handleInteraction = async (type: 'like' | 'save' | 'share') => {
+  const handleInteraction = async (type: 'like' | 'save' | 'share' | 'not_interested') => {
     try {
       if (type === 'share') {
         if (navigator.share) {
@@ -102,6 +104,11 @@ export const ContentCard: React.FC<ContentCardProps> = ({ content }) => {
 
       if (type === 'like') setIsLiked(data.action === 'added');
       if (type === 'save') setIsSaved(data.action === 'added');
+      if (type === 'not_interested') {
+        setIsNotInterested(true);
+        // Optionally, you could remove the content from the feed
+        // or add some visual feedback
+      }
     } catch (error) {
       console.error('Error in handleInteraction:', error);
       alert('An unexpected error occurred. Please try again.');
@@ -156,6 +163,14 @@ export const ContentCard: React.FC<ContentCardProps> = ({ content }) => {
         >
           <span className="button-label">Share this paper</span>
           <i className="fas fa-share" aria-hidden="true"></i>
+        </button>
+        <button
+          className={`interaction-button ${isNotInterested ? 'active' : ''}`}
+          onClick={() => handleInteraction('not_interested')}
+          aria-label="Not interested in this paper"
+          title="Not interested in this paper"
+        >
+          <i className="fas fa-ban" aria-hidden="true"></i>
         </button>
       </div>
     </motion.div>

@@ -22,7 +22,7 @@ interface ProfileProps {
 
 export const Profile: React.FC<ProfileProps> = ({ onHomeClick, onSearch, onLogout }) => {
   const [savedContent, setSavedContent] = useState<SavedContent[]>([]);
-  const [activeTab, setActiveTab] = useState<'likes' | 'bookmarks'>('likes');
+  const [activeTab, setActiveTab] = useState<'likes' | 'bookmarks' | 'not_interested'>('likes');
   const [searchQuery, setSearchQuery] = useState('');
 
   const fetchUserInteractions = async () => {
@@ -76,7 +76,7 @@ export const Profile: React.FC<ProfileProps> = ({ onHomeClick, onSearch, onLogou
 
       // Filter content based on active tab
       const filteredContent = contentDetails.filter(
-        item => item.interaction_type === (activeTab === 'likes' ? 'like' : 'save')
+        item => item.interaction_type === (activeTab === 'likes' ? 'like' : activeTab === 'bookmarks' ? 'save' : 'not_interested')
       );
 
       setSavedContent(filteredContent);
@@ -144,12 +144,18 @@ export const Profile: React.FC<ProfileProps> = ({ onHomeClick, onSearch, onLogou
         >
           Bookmarks
         </button>
+        <button 
+          className={`tab ${activeTab === 'not_interested' ? 'active' : ''}`}
+          onClick={() => setActiveTab('not_interested')}
+        >
+          Not Interested
+        </button>
       </div>
 
       <div className="saved-content">
         {savedContent.length === 0 ? (
           <div className="no-content">
-            No {activeTab} yet
+            No {activeTab.replace('_', ' ')} content yet
           </div>
         ) : (
           savedContent.map(interaction => (
