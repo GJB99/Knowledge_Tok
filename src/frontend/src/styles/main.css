@@ -369,4 +369,107 @@
 
 .signup-button:hover {
   background: #d8effe;
+}
+
+.categories-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  color: #666;
+  cursor: pointer;
+  font-size: 0.9em;
+  transition: color 0.2s;
+}
+
+.categories-button:hover {
+  color: #1da1f2;
+}
+
+.categories-dropdown {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1000;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.categories-dropdown-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.categories-dropdown-content {
+  position: relative;
+  margin-top: 100px;
+  background: white;
+  padding: 20px;
+  border-radius: 15px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 1001;
+  max-width: 800px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.categories-list {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.category-group {
+  border-bottom: 1px solid #eee;
+  padding-bottom: 15px;
+}
+
+.category-group:last-child {
+  border-bottom: none;
+}
+
+.category-group-title {
+  color: #1da1f2;
+  margin-bottom: 10px;
+  font-size: 1.1em;
+}
+
+.category-group-items {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+  gap: 8px;
+}
+
+.category-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px;
+  border-radius: 8px;
+  transition: background-color 0.2s;
+}
+
+.category-item:hover {
+  background: #f5f8fa;
+}
+
+.category-short {
+  font-family: monospace;
+  color: #1da1f2;
+  font-weight: 500;
+  min-width: 120px;
+}
+
+.category-full {
+  color: #536471;
 } 

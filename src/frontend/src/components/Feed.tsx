@@ -5,6 +5,7 @@ import { useSwipeable } from 'react-swipeable';
 import { Profile } from '../components/Profile';
 import { useNavigate } from 'react-router-dom';
 import { LoginModal } from '../components/LoginModal';
+import { CategoriesDropdown } from './CategoriesDropdown';
 
 
 interface Content {
@@ -34,6 +35,7 @@ export const Feed: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [isAuthenticated, setIsAuthenticated] = useState(!!localStorage.getItem('token'));
   const navigate = useNavigate();
+  const [showCategories, setShowCategories] = useState(false);
 
   const fetchContent = async (page: number) => {
     if (loading || !hasMore) return;
@@ -162,6 +164,15 @@ export const Feed: React.FC = () => {
         >
           <i className="fas fa-home" aria-hidden="true"></i>
         </button>
+        <button
+          className="categories-button"
+          onClick={() => setShowCategories(true)}
+          aria-label="Show categories"
+          title="Show categories"
+        >
+          <i className="fas fa-tags" aria-hidden="true"></i>
+          <span></span>
+        </button>
         <div className="search-container">
           <input 
             type="text" 
@@ -201,6 +212,11 @@ export const Feed: React.FC = () => {
           </div>
         </div>
       </header>
+
+      <CategoriesDropdown 
+        isOpen={showCategories} 
+        onClose={() => setShowCategories(false)} 
+      />
 
       {showProfile ? (
         <Profile 

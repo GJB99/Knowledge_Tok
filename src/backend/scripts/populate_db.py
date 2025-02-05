@@ -89,10 +89,12 @@ ARXIV_CATEGORIES = {
         'SY',  # Systems and Control
     ],
     'gr-qc': [],     # General Relativity and Quantum Cosmology
-    'hep-ex': [],    # High Energy Physics - Experiment
-    'hep-lat': [],   # High Energy Physics - Lattice
-    'hep-ph': [],    # High Energy Physics - Phenomenology
-    'hep-th': [],    # High Energy Physics - Theory
+    'hep': [
+        'EX',  # High Energy Physics - Experiment
+        'LAT', # High Energy Physics - Lattice
+        'PH',  # High Energy Physics - Phenomenology
+        'TH',  # High Energy Physics - Theory
+    ],
     'math': [
         'AC',  # Commutative Algebra
         'AG',  # Algebraic Geometry
@@ -135,8 +137,10 @@ ARXIV_CATEGORIES = {
         'PS',  # Pattern Formation and Solitons
         'SI',  # Exactly Solvable and Integrable Systems
     ],
-    'nucl-ex': [],   # Nuclear Experiment
-    'nucl-th': [],   # Nuclear Theory
+    'nucl': [
+        'EX',  # Nuclear Experiment
+        'TH',  # Nuclear Theory
+    ],
     'physics': [
         'acc-ph',     # Accelerator Physics
         'ao-ph',      # Atmospheric and Oceanic Physics
