@@ -8,8 +8,8 @@ from sqlalchemy.ext.declarative import declarative_base
 
 Base = declarative_base()
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./test.db")
-ARTICLES_DATABASE_URL = os.getenv("ARTICLES_DATABASE_URL", DATABASE_URL)
+DATABASE_URL = os.getenv("DATABASE_URL")
+ARTICLES_DATABASE_URL = os.getenv("ARTICLES_DATABASE_URL")
 
 engine = create_async_engine(DATABASE_URL, future=True, echo=False)
 articles_engine = create_async_engine(ARTICLES_DATABASE_URL, future=True, echo=False)

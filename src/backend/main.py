@@ -56,11 +56,11 @@ app.add_middleware(
 
 # Email configuration
 mail_config = ConnectionConfig(
-    MAIL_USERNAME="knowledgetok@guusbouwens.com",
-    MAIL_PASSWORD="The1stApp12399",
-    MAIL_FROM="knowledgetok@guusbouwens.com",
-    MAIL_PORT=465,  # SMTP port from your settings
-    MAIL_SERVER="guusbouwens.com",
+    MAIL_USERNAME=os.getenv('MAIL_USERNAME'),
+    MAIL_PASSWORD=os.getenv('MAIL_PASSWORD'),
+    MAIL_FROM=os.getenv('MAIL_FROM'),
+    MAIL_PORT=int(os.getenv('MAIL_PORT', 465)),  # Default to 465 if not set
+    MAIL_SERVER=os.getenv('MAIL_SERVER'),
     MAIL_STARTTLS=False,  # Disable STARTTLS since we're using SSL
     MAIL_SSL_TLS=True,    # Enable SSL
     USE_CREDENTIALS=True,
