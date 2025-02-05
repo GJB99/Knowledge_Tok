@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, HTMLMotionProps } from 'framer-motion';
+import { MathText } from './MathText';
 
 interface ContentCardProps {
   content: {
@@ -18,6 +19,7 @@ interface ContentCardProps {
 type MotionDivProps = HTMLMotionProps<"div"> & { className?: string };
 
 export const ContentCard: React.FC<ContentCardProps> = ({ content }) => {
+  console.log("ContentCard received content:", content);
   const [isLiked, setIsLiked] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
   const [isNotInterested, setIsNotInterested] = useState(false);
@@ -132,7 +134,7 @@ export const ContentCard: React.FC<ContentCardProps> = ({ content }) => {
 
   return (
     <motion.div {...motionProps}>
-      <h2>{content.title}</h2>
+      <h2><MathText text={content.title} /></h2>
       {content.metadata?.categories && (
         <div className="categories">
           {content.metadata.categories.map((category, index) => (
@@ -142,7 +144,7 @@ export const ContentCard: React.FC<ContentCardProps> = ({ content }) => {
           ))}
         </div>
       )}
-      <p className="abstract">{content.abstract}</p>
+      <p className="abstract"><MathText text={content.abstract} /></p>
       <div className="source-info">
         <div className="source-date">
           <span>arXiv,</span>

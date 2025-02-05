@@ -22,6 +22,22 @@ interface Content {
   };
 }
 
+interface SearchItem {
+  id: number;
+  title: string;
+  abstract: string;
+  source: string;
+  url: string;
+  categories?: string[];
+  published_date?: string;
+  metadata?: {
+    authors: string[];
+    categories: string[];
+    paper_id: string;
+    published_date: string;
+  };
+}
+
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
 export const Feed: React.FC = () => {
@@ -111,7 +127,16 @@ export const Feed: React.FC = () => {
       }
       
       if (data.items && Array.isArray(data.items)) {
-        setContents(data.items);
+        // Transform the data to include metadata in the correct format
+        const transformedItems = data.items.map((item: SearchItem) => ({
+          ...item,
+          metadata: {
+            ...item.metadata,
+            categories: item.categories || item.metadata?.categories || [],
+            published_date: item.published_date || item.metadata?.published_date
+          }
+        }));
+        setContents(transformedItems);
         setCurrentPage(1);
         setHasMore(data.has_more || false);
       } else {

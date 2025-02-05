@@ -535,6 +535,9 @@ async def register(user: UserCreate, db: AsyncSession = Depends(get_db)):
             recipients=[user.email],
             body=f"""
                 <html>
+                    <head>
+                        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/katex/0.15.3/katex.min.css">
+                    </head>
                     <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
                         <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px; border: 1px solid #dee2e6;">
                             <h1 style="color: #1a91da; margin-bottom: 20px;">Welcome to Academic Feed!</h1>
@@ -596,6 +599,9 @@ async def verify_email(token: str, db: AsyncSession = Depends(get_db)):
     
     return HTMLResponse(content='''
         <html>
+            <head>
+                <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/katex/0.15.3/katex.min.css">
+            </head>
             <body>
                 <h1>Email verified successfully!</h1>
                 <p>You can now <a href="/login">login</a> to your account.</p>

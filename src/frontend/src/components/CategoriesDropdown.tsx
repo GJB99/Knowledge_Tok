@@ -186,7 +186,10 @@ const categoryMappings = {
   'q-bio.QM': 'Quantitative Methods',
   'q-bio.SC': 'Subcellular Processes',
   'q-bio.TO': 'Tissues and Organs',
+
+  'more info': 'https://arxiv.org/category_taxonomy',
 };
+
 
 
 export interface CategoriesDropdownProps {
