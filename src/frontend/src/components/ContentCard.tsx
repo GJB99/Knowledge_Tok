@@ -40,6 +40,8 @@ export const ContentCard: React.FC<ContentCardProps> = ({ content }) => {
         return;
       }
 
+      console.log('Token:', token);
+
       const response = await fetch('http://localhost:8000/api/interactions', {
         method: 'POST',
         credentials: 'include',
@@ -56,18 +58,21 @@ export const ContentCard: React.FC<ContentCardProps> = ({ content }) => {
 
       if (!response.ok) {
         if (response.status === 401) {
-          localStorage.removeItem('token');
-          window.location.href = '/login';
+          alert('Unauthorized action. Please try logging in again.');
           return;
         }
-        throw new Error(`Failed to ${type} the content.`);
+        console.error('Interaction failed:', await response.json());
+        alert('Failed to interact with content. Please try logging in again.');
+        return;
       }
 
       const data = await response.json();
+
       if (type === 'like') setIsLiked(data.action === 'added');
       if (type === 'save') setIsSaved(data.action === 'added');
     } catch (error) {
       console.error('Error in handleInteraction:', error);
+      alert('An unexpected error occurred. Please try again.');
     }
   };
 

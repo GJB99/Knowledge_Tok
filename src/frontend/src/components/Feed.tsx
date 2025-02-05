@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ContentCard } from './ContentCard';
+import { ContentCard } from '../components/ContentCard';
 import { useSwipeable } from 'react-swipeable';
-import { Profile } from './Profile';
+import { Profile } from '../components/Profile';
 import { useNavigate } from 'react-router-dom';
-import { LoginModal } from './LoginModal';
+import { LoginModal } from '../components/LoginModal';
+
 
 interface Content {
   id: number;
@@ -137,13 +138,10 @@ export const Feed: React.FC = () => {
   };
 
   const handleLogout = () => {
-    if (!isAuthenticated) {
-      setShowLoginModal(true);
-      return;
-    }
     localStorage.removeItem('token');
     setIsAuthenticated(false);
     setShowProfile(false);
+    window.location.href = '/login';
   };
 
   return (
@@ -188,19 +186,38 @@ export const Feed: React.FC = () => {
           >
             <i className="fas fa-user" aria-hidden="true"></i>
           </button>
-          <button 
-            className="logout-button"
-            onClick={handleLogout}
-            aria-label="Log out"
-            title="Log out"
-          >
-            <i className="fas fa-sign-out-alt" aria-hidden="true"></i>
-          </button>
+          <div className="right-buttons">
+            {isAuthenticated && (
+              <button 
+                className="logout-button"
+                onClick={handleLogout}
+                aria-label="Logout"
+                title="Logout"
+              >
+                <i className="fas fa-sign-out-alt" aria-hidden="true"></i>
+                <span></span>
+              </button>
+            )}
+          </div>
         </div>
       </header>
 
       {showProfile ? (
-        <Profile />
+        <Profile 
+          onHomeClick={() => {
+            setShowProfile(false);
+            setSearchQuery('');
+            setCurrentPage(1);
+            setHasMore(true);
+            fetchContent(1);
+          }}
+          onSearch={(query: string) => {
+            setShowProfile(false);
+            setSearchQuery(query);
+            handleSearch();
+          }}
+          onLogout={handleLogout}
+        />
       ) : (
         <div 
           className="feed-container" 

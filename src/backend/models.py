@@ -1,7 +1,10 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Table, Boolean, JSON
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Table, Boolean, JSON, Text
 from sqlalchemy.orm import relationship
-from .database import Base
+from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime
+
+# Create Base here instead of importing
+Base = declarative_base()
 
 # Association table for user interests
 user_interests = Table(
@@ -14,10 +17,11 @@ user_interests = Table(
 class User(Base):
     __tablename__ = 'users'
     
-    id = Column(Integer, primary_key=True)
-    username = Column(String, unique=True, nullable=False)
-    email = Column(String, unique=True, nullable=False)
-    password_hash = Column(String, nullable=False)
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, unique=True, index=True)
+    email = Column(String, unique=True, index=True)
+    hashed_password = Column(String)
+    is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     is_verified = Column(Boolean, default=False)
     verification_token = Column(String, nullable=True)
@@ -36,10 +40,10 @@ class Interest(Base):
 class Content(Base):
     __tablename__ = 'content'
     
-    id = Column(Integer, primary_key=True)
-    title = Column(String, nullable=False)
-    abstract = Column(String)
-    source = Column(String, nullable=False)  # arxiv, core, etc.
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String)
+    abstract = Column(Text)
+    source = Column(String)
     external_id = Column(String)
     url = Column(String)
     published_date = Column(DateTime)
@@ -51,10 +55,10 @@ class Content(Base):
 class Interaction(Base):
     __tablename__ = 'interactions'
     
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey('users.id'))
     content_id = Column(Integer, ForeignKey('content.id'))
-    interaction_type = Column(String)  # like, save, view
+    interaction_type = Column(String)  # 'like' or 'save'
     created_at = Column(DateTime, default=datetime.utcnow)
     
     # Relationships

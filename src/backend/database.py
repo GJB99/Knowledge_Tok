@@ -6,6 +6,8 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 
+Base = declarative_base()
+
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./test.db")
 ARTICLES_DATABASE_URL = os.getenv("ARTICLES_DATABASE_URL", DATABASE_URL)
 
@@ -14,8 +16,6 @@ articles_engine = create_async_engine(ARTICLES_DATABASE_URL, future=True, echo=F
 
 AsyncSessionLocal = sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 ArticlesSessionLocal = sessionmaker(articles_engine, expire_on_commit=False, class_=AsyncSession)
-
-Base = declarative_base()
 
 async def init_db():
     # Import all models here to ensure they're registered with Base

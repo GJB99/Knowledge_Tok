@@ -10,6 +10,7 @@ import os
 # Add the parent directory to the Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Use relative imports instead
 from models import Content, Base
 from database import DATABASE_URL, ARTICLES_DATABASE_URL
 
@@ -197,7 +198,7 @@ ARXIV_CATEGORIES = {
 async def fetch_arxiv_papers(max_results=100):
     client = arxiv.Client()
     # Use UTC timezone for consistency with arXiv's dates
-    date_filter = datetime.now().astimezone().replace(microsecond=0) - timedelta(days=30)
+    date_filter = datetime.now().astimezone().replace(microsecond=0) - timedelta(days=300)
     
     # First, get all existing paper IDs from the database
     engine = create_async_engine(ARTICLES_DATABASE_URL)

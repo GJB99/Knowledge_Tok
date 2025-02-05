@@ -9,34 +9,62 @@ interface LoginModalProps {
 
 export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
   const navigate = useNavigate();
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [isResetMode, setIsResetMode] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [email, setEmail] = useState('');
-  const [isResetMode, setIsResetMode] = useState(false);
+  const [error, setError] = useState('');
   const [resetMessage, setResetMessage] = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const response = await fetch('http://localhost:8000/auth/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ username, password }),
-      });
+      let response;
+      if (isSignUp) {
+        response = await fetch('http://localhost:8000/auth/register', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ email, username, password }),
+        });
 
-      if (response.ok) {
         const data = await response.json();
-        localStorage.setItem('token', data.token);
-        onClose();
-        navigate('/');
+        if (response.ok) {
+          if (data.token === "pending_verification") {
+            setError(data.message || "Please check your email to verify your account.");
+            return;
+          }
+          localStorage.setItem('token', data.token);
+          onClose();
+        } else {
+          setError(data.detail || 'Registration failed');
+        }
       } else {
-        alert('Login failed');
+        response = await fetch('http://localhost:8000/token', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: new URLSearchParams({
+            username: username || email,
+            password: password,
+          }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          localStorage.setItem('token', data.access_token);
+          onClose();
+        } else {
+          const errorData = await response.json();
+          setError(errorData.detail || 'Authentication failed');
+        }
       }
     } catch (error) {
       console.error('Login error:', error);
-      alert('Login failed');
+      setError('An error occurred. Please try again.');
     }
   };
 
@@ -69,32 +97,83 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
   };
 
   const renderLoginForm = () => (
-    <form onSubmit={handleSubmit} className="login-form">
-      <h2>Login</h2>
-      <div className="form-group">
-        <input
-          type="text"
-          placeholder="Username"
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-        />
-      </div>
+    <form className="login-form" onSubmit={handleSubmit}>
+      <h2>{isSignUp ? 'Sign Up' : 'Login'}</h2>
+      
+      {isSignUp ? (
+        <>
+          <div className="form-group">
+            <input
+              type="email"
+              placeholder="Email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
+          </div>
+          <div className="form-group">
+            <input
+              type="text"
+              placeholder="Username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              required
+            />
+          </div>
+        </>
+      ) : (
+        <div className="form-group">
+          <input
+            type="text"
+            placeholder="Username or Email"
+            value={username || email}
+            onChange={(e) => {
+              if (e.target.value.includes('@')) {
+                setEmail(e.target.value);
+                setUsername('');
+              } else {
+                setUsername(e.target.value);
+                setEmail('');
+              }
+            }}
+            required
+          />
+        </div>
+      )}
+      
       <div className="form-group">
         <input
           type="password"
           placeholder="Password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
+          required
         />
       </div>
-      <button type="submit" className="login-button">Login</button>
+
+      {error && <div className="error-message">{error}</div>}
+      
+      <button type="submit" className="login-button">
+        {isSignUp ? 'Sign Up' : 'Login'}
+      </button>
+
       <div className="auth-links">
-        <a href="#" onClick={(e) => {
-          e.preventDefault();
-          setIsResetMode(true);
-        }}>
-          Forgot Password?
-        </a>
+        <button 
+          type="button" 
+          className="switch-mode" 
+          onClick={() => setIsSignUp(!isSignUp)}
+        >
+          {isSignUp ? 'Already have an account? Login' : "Don't have an account? Sign Up"}
+        </button>
+        {!isSignUp && (
+          <button 
+            type="button"
+            className="forgot-password"
+            onClick={() => setIsResetMode(true)}
+          >
+            Forgot Password?
+          </button>
+        )}
       </div>
     </form>
   );
@@ -113,12 +192,13 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
       <button type="submit" className="login-button">Send Reset Link</button>
       {resetMessage && <div className="reset-message">{resetMessage}</div>}
       <div className="auth-links">
-        <a href="#" onClick={(e) => {
-          e.preventDefault();
-          setIsResetMode(false);
-        }}>
+        <button 
+          type="button"
+          className="switch-mode"
+          onClick={() => setIsResetMode(false)}
+        >
           Back to Login
-        </a>
+        </button>
       </div>
     </form>
   );
@@ -126,13 +206,9 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
   if (!isOpen) return null;
 
   return (
-    <div className="modal-overlay" onClick={(e) => {
-      if (e.target === e.currentTarget) onClose();
-    }}>
+    <div className="modal-overlay">
       <div className="modal-content">
-        <button className="modal-close" onClick={onClose} aria-label="Close login modal">
-          <i className="fas fa-times" aria-hidden="true"></i>
-        </button>
+        <button className="modal-close" onClick={onClose}>&times;</button>
         {isResetMode ? renderResetForm() : renderLoginForm()}
       </div>
     </div>

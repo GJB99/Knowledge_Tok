@@ -5,8 +5,8 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_, and_, func
 import requests
-from .models import Content, User, Interaction
-from .database import get_db, init_db, AsyncSessionLocal, get_articles_db
+from .models import Content, User, Interaction, Base
+from .database import get_db, init_db, AsyncSessionLocal, get_articles_db, engine
 import asyncio
 from datetime import datetime, timedelta
 from .seed import seed_initial_content
@@ -17,22 +17,28 @@ from dotenv import load_dotenv
 import os
 import json
 import io
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from .utils import process_and_store_arxiv_results
 from fastapi.staticfiles import StaticFiles
-from .auth import Auth
+from . import auth
+from passlib.context import CryptContext
+from jose import JWTError, jwt
+from typing import Optional
+from .auth import authenticate_user
 
 app = FastAPI()
 
 # Load environment variables
 load_dotenv()
 
-auth = Auth()
-
 # Initialize database tables
 @app.on_event("startup")
 async def startup_event():
     try:
+        async with engine.begin() as conn:
+            # Only create tables, don't drop them
+            await conn.run_sync(Base.metadata.create_all)
+                
         # Initialize both main and articles databases
         await init_db()
     except Exception as e:
@@ -50,18 +56,44 @@ app.add_middleware(
 
 # Email configuration
 mail_config = ConnectionConfig(
-    MAIL_USERNAME="guusdoly@guusbouwens.com",
-    MAIL_PASSWORD=os.getenv("EMAIL_PASSWORD"),
-    MAIL_FROM="guusdoly@guusbouwens.com",
-    MAIL_PORT=587,
-    MAIL_SERVER="mail.guusbouwens.com",  # Your Roundcube mail server
-    MAIL_STARTTLS=True,
-    MAIL_SSL_TLS=False,
-    USE_CREDENTIALS=True
+    MAIL_USERNAME="knowledgetok@guusbouwens.com",
+    MAIL_PASSWORD="The1stApp12399",
+    MAIL_FROM="knowledgetok@guusbouwens.com",
+    MAIL_PORT=465,  # SMTP port from your settings
+    MAIL_SERVER="guusbouwens.com",
+    MAIL_STARTTLS=False,  # Disable STARTTLS since we're using SSL
+    MAIL_SSL_TLS=True,    # Enable SSL
+    USE_CREDENTIALS=True,
+    VALIDATE_CERTS=False,
+    TIMEOUT=60
 )
 
 # Mount static files
 app.mount("/static", StaticFiles(directory="src/backend/static"), name="static")
+
+# Password hashing
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+# In-memory user storage (replace with database in production)
+users = {}
+
+# Add these Pydantic models at the top of the file
+class UserCreate(BaseModel):
+    email: str
+    username: str
+    password: str
+
+class UserLogin(BaseModel):
+    email: str
+    password: str
+
+class Token(BaseModel):
+    token: str
+    message: Optional[str] = None
+
+class InteractionCreate(BaseModel):
+    content_id: int
+    interaction_type: str
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
@@ -210,24 +242,31 @@ def search_core(query: str, max_results: int = 10):
     return JSONResponse(content={"result": f"Core API search for query '{query}' with max_results={max_results}"})
 
 @app.post("/token")
-async def login(
+async def login_for_access_token(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: AsyncSession = Depends(get_db)
 ):
-    query = select(User).where(User.username == form_data.username)
-    result = await db.execute(query)
-    user = result.scalar_one_or_none()
-    
+    try:
+        user = await authenticate_user(form_data.username, form_data.password, db)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect username/email or password",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
 
-    if not user or not auth.verify_password(form_data.password, user.password_hash):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Bearer"},
+        access_token_expires = timedelta(minutes=auth.ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = auth.create_access_token(
+            data={"sub": user.username}, expires_delta=access_token_expires
         )
-    
-    access_token = auth.create_access_token(data={"sub": user.username})
-    return {"access_token": access_token, "token_type": "bearer"}
+        return {"access_token": access_token, "token_type": "bearer"}
+
+    except Exception as e:
+        print(f"Login error in /token endpoint: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error during login",
+        )
 
 @app.get("/api/content")
 async def get_content(
@@ -420,7 +459,7 @@ async def signup_page():
                     const username = document.getElementById('username').value;
                     const password = document.getElementById('password').value;
                     try {
-                        const response = await fetch('/register', {
+                        const response = await fetch('/auth/register', {
                             method: 'POST',
                             headers: {'Content-Type': 'application/json'},
                             body: JSON.stringify({email, username, password})
@@ -443,50 +482,91 @@ async def signup_page():
     '''
     return HTMLResponse(content=html_content)
 
-@app.post("/register")
-async def register(
-    request: Request,
-    db: AsyncSession = Depends(get_db)
-):
+def create_access_token(data: dict):
+    to_encode = data.copy()
+    expire = datetime.utcnow() + timedelta(minutes=auth.ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, auth.SECRET_KEY, algorithm=auth.ALGORITHM)
+    return encoded_jwt
+
+@app.post("/auth/register", response_model=Token)
+async def register(user: UserCreate, db: AsyncSession = Depends(get_db)):
+    # Check if username or email already exists
+    query = select(User).where(
+        or_(
+            User.username == user.username,
+            User.email == user.email
+        )
+    )
+    result = await db.execute(query)
+    if result.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="Username or email already registered")
+    
+    # Generate verification token and create user first
+    verification_token = secrets.token_urlsafe(32)
+    hashed_password = pwd_context.hash(user.password)
+    
+    db_user = User(
+        username=user.username,
+        email=user.email,
+        hashed_password=hashed_password,
+        is_active=True,
+        is_verified=False,
+        verification_token=verification_token
+    )
+    
     try:
-        data = await request.json()
-        email = data.get('email')
-        username = data.get('username')
-        password = data.get('password')
+        verification_url = f"http://localhost:8000/verify/{verification_token}"
+        fm = FastMail(mail_config)
         
-        if not all([email, username, password]):
-            raise HTTPException(status_code=400, detail="Missing required fields")
-        
-        # Check if user exists
-        query = select(User).where(
-            or_(User.email == email, User.username == username)
+        message = MessageSchema(
+            subject="Welcome to Academic Feed - Please Verify Your Email",
+            recipients=[user.email],
+            body=f"""
+                <html>
+                    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+                        <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px; border: 1px solid #dee2e6;">
+                            <h1 style="color: #1a91da; margin-bottom: 20px;">Welcome to Academic Feed!</h1>
+                            <p style="margin-bottom: 15px;">Thank you for joining our academic community. To ensure the security of your account, please verify your email address by clicking the button below:</p>
+                            
+                            <div style="text-align: center; margin: 30px 0;">
+                                <a href="{verification_url}" style="background-color: #1da1f2; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;">Verify Email Address</a>
+                            </div>
+                            
+                            <p style="margin-bottom: 15px;">If the button doesn't work, you can copy and paste this link into your browser:</p>
+                            <p style="background-color: #fff; padding: 10px; border-radius: 3px; font-size: 14px; word-break: break-all;">{verification_url}</p>
+                            
+                            <p style="color: #666; font-size: 14px; margin-top: 30px;">This link will expire in 24 hours. If you didn't create an account, you can safely ignore this email.</p>
+                            
+                            <hr style="border: none; border-top: 1px solid #dee2e6; margin: 20px 0;">
+                            
+                            <p style="color: #666; font-size: 12px; text-align: center;">© 2024 Academic Feed. All rights reserved.</p>
+                        </div>
+                    </body>
+                </html>
+            """,
+            subtype="html"
         )
-        result = await db.execute(query)
-
-        if result.scalar_one_or_none():
-            raise HTTPException(status_code=400, detail="Username or email already registered")
         
-        # Create new user
-        hashed_password = auth.get_password_hash(password)
-        verification_token = secrets.token_urlsafe(32)
-        new_user = User(
-            email=email,
-            username=username,
-
-            password_hash=hashed_password,
-            is_verified=False,
-            verification_token=verification_token
-        )
+        await fm.send_message(message)
         
-        db.add(new_user)
+        # Save user after successful email send
+        db.add(db_user)
         await db.commit()
+        await db.refresh(db_user)
         
-        return JSONResponse(content={"message": "Registration successful"}, status_code=200)
+        return {
+            "token": "pending_verification",
+            "message": "Account created. Please check your email to verify your account before logging in."
+        }
+            
     except Exception as e:
+        print(f"Error sending verification email: {e}")
+        # Rollback the database transaction if it failed
         await db.rollback()
-        return JSONResponse(
-            content={"detail": str(e)}, 
-            status_code=500
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to create account. Please try again later."
         )
 
 @app.get("/verify/{token}")
@@ -515,20 +595,22 @@ async def verify_email(token: str, db: AsyncSession = Depends(get_db)):
 @app.get("/api/user/interactions")
 async def get_user_interactions(
     type: str,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(auth.get_current_user)
+    current_user: User = Depends(auth.get_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
     try:
-        query = select(Interaction, Content).\
-            join(Content).\
-            where(
-                and_(
-                    Interaction.user_id == current_user.id,
+        user = current_user
 
-                    Interaction.interaction_type == type
-                )
-
+        # Get interactions with content details
+        query = select(Content, Interaction).join(
+            Interaction, Content.id == Interaction.content_id
+        ).where(
+            and_(
+                Interaction.user_id == user.id,
+                Interaction.interaction_type == type
             )
+        )
+        
         result = await db.execute(query)
         interactions = result.all()
         
@@ -541,53 +623,62 @@ async def get_user_interactions(
                 "url": content.url,
                 "interaction_type": interaction.interaction_type
             }
-            for interaction, content in interactions
+            for content, interaction in interactions
         ]
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Error in get_user_interactions: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
 
-# New Pydantic model for creating interactions
-class InteractionCreate(BaseModel):
-    content_id: int
-    interaction_type: str
-
-# New endpoint to handle like/save interactions from the ContentCard component
 @app.post("/api/interactions")
-async def handle_interaction(
+async def create_interaction(
     interaction: InteractionCreate,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(auth.get_current_user)
+    current_user: User = Depends(auth.get_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
     try:
+        user = current_user
+
         # Check if interaction already exists
-
-        query = select(Interaction).where(
+        existing_query = select(Interaction).where(
             and_(
-                Interaction.user_id == current_user.id,
-
+                Interaction.user_id == user.id,
                 Interaction.content_id == interaction.content_id,
                 Interaction.interaction_type == interaction.interaction_type
-
             )
         )
-        result = await db.execute(query)
-        existing_interaction = result.scalar_one_or_none()
+        existing_result = await db.execute(existing_query)
+        existing_interaction = existing_result.scalar_one_or_none()
 
         if existing_interaction:
-            # If interaction exists, remove it (toggle behavior)
+            # If interaction exists, remove it (toggle off)
             await db.delete(existing_interaction)
-        else:
-            # Create new interaction
-            new_interaction = Interaction(
-                user_id=current_user.id,
-                content_id=interaction.content_id,
-                interaction_type=interaction.interaction_type
-            )
+            await db.commit()
+            return {
+                "status": "success",
+                "action": "removed",
+                "interaction_type": interaction.interaction_type,
+                "content_id": interaction.content_id
+            }
 
-            db.add(new_interaction)
+        # Create new interaction
+        new_interaction = Interaction(
+            user_id=user.id,
+            content_id=interaction.content_id,
+            interaction_type=interaction.interaction_type
+        )
 
+        db.add(new_interaction)
         await db.commit()
-        return {"success": True, "action": "removed" if existing_interaction else "added"}
+
+        return {
+            "status": "success",
+            "action": "added",
+            "interaction_type": interaction.interaction_type,
+            "content_id": interaction.content_id
+        }
     except Exception as e:
         await db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
@@ -681,8 +772,8 @@ async def reset_password(
     if not user:
         raise HTTPException(status_code=400, detail="Invalid or expired reset token")
     
-    hashed_password = auth.get_password_hash(new_password)
-    user.hashed_password = hashed_password
+    hashed_password = pwd_context.hash(new_password)
+    user.password_hash = hashed_password
     user.reset_token = None
     user.reset_token_expires = None
     await db.commit()
