@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, HTMLMotionProps } from 'framer-motion';
 
 interface ContentCardProps {
@@ -16,6 +16,38 @@ type MotionDivProps = HTMLMotionProps<"div"> & { className?: string };
 export const ContentCard: React.FC<ContentCardProps> = ({ content }) => {
   const [isLiked, setIsLiked] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
+
+  const checkInteractionStatus = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+
+      const response = await fetch(`http://localhost:8000/api/content/${content.id}/interaction-status`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          localStorage.removeItem('token');
+          return;
+        }
+        throw new Error('Failed to fetch interaction status');
+      }
+
+      const data = await response.json();
+      setIsLiked(data.isLiked);
+      setIsSaved(data.isSaved);
+    } catch (error) {
+      console.error('Error checking interaction status:', error);
+    }
+  };
+
+  useEffect(() => {
+    checkInteractionStatus();
+  }, [content.id]);
 
   const handleInteraction = async (type: 'like' | 'save' | 'share') => {
     try {

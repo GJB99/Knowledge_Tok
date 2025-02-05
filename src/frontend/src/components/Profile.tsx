@@ -1,12 +1,17 @@
 import React, { useState, useEffect } from 'react';
+import { ContentCard } from './ContentCard';
 
 interface SavedContent {
-  id: number;
-  title: string;
-  abstract: string;
-  source: string;
-  url: string;
+  interaction_id: number;
+  content_id: number;
   interaction_type: string;
+  content?: {
+    id: number;
+    title: string;
+    abstract: string;
+    source: string;
+    url: string;
+  };
 }
 
 interface ProfileProps {
@@ -28,8 +33,6 @@ export const Profile: React.FC<ProfileProps> = ({ onHomeClick, onSearch, onLogou
         return;
       }
 
-      console.log('Token:', token);
-
       const response = await fetch(`http://localhost:8000/api/user/interactions?type=${activeTab}`, {
         credentials: 'include',
         headers: {
@@ -38,19 +41,45 @@ export const Profile: React.FC<ProfileProps> = ({ onHomeClick, onSearch, onLogou
         }
       });
 
-      const data = await response.json();
-      
       if (!response.ok) {
         if (response.status === 401) {
           alert('Unauthorized. Please log in again to view your profile.');
           return;
         }
-        console.error('Failed to fetch interactions:', data);
-        alert('Failed to load content. Please try logging in again.');
-        return;
+        throw new Error('Failed to fetch interactions');
       }
 
-      setSavedContent(data);
+      const interactions = await response.json();
+      
+      // Fetch content details for each interaction
+      const contentDetails = await Promise.all(
+        interactions.map(async (interaction: SavedContent) => {
+          const contentResponse = await fetch(`http://localhost:8000/api/content/${interaction.content_id}`, {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Accept': 'application/json'
+            }
+          });
+          
+          if (!contentResponse.ok) {
+            console.error(`Failed to fetch content for ID ${interaction.content_id}`);
+            return interaction;
+          }
+          
+          const content = await contentResponse.json();
+          return {
+            ...interaction,
+            content
+          };
+        })
+      );
+
+      // Filter content based on active tab
+      const filteredContent = contentDetails.filter(
+        item => item.interaction_type === (activeTab === 'likes' ? 'like' : 'save')
+      );
+
+      setSavedContent(filteredContent);
     } catch (error) {
       console.error('Error fetching interactions:', error);
       alert('An unexpected error occurred. Please try again.');
@@ -101,6 +130,7 @@ export const Profile: React.FC<ProfileProps> = ({ onHomeClick, onSearch, onLogou
           <span></span>
         </button>
       </header>
+      
       <div className="profile-tabs">
         <button 
           className={`tab ${activeTab === 'likes' ? 'active' : ''}`}
@@ -115,16 +145,22 @@ export const Profile: React.FC<ProfileProps> = ({ onHomeClick, onSearch, onLogou
           Bookmarks
         </button>
       </div>
+
       <div className="saved-content">
-        {savedContent.map(content => (
-          <div key={content.id} className="saved-item">
-            <h3>{content.title}</h3>
-            <p>{content.abstract}</p>
-            <a href={content.url} target="_blank" rel="noopener noreferrer">
-              Read More
-            </a>
+        {savedContent.length === 0 ? (
+          <div className="no-content">
+            No {activeTab} yet
           </div>
-        ))}
+        ) : (
+          savedContent.map(interaction => (
+            interaction.content && (
+              <ContentCard
+                key={interaction.interaction_id}
+                content={interaction.content}
+              />
+            )
+          ))
+        )}
       </div>
     </div>
   );

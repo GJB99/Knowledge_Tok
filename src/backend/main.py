@@ -601,29 +601,35 @@ async def get_user_interactions(
     try:
         user = current_user
 
-        # Get interactions with content details
-        query = select(Content, Interaction).join(
-            Interaction, Content.id == Interaction.content_id
-        ).where(
-            and_(
-                Interaction.user_id == user.id,
-                Interaction.interaction_type == type
-            )
+        interaction_type_filter = type
+        user_id_filter = int(user.id)  # Explicitly cast user.id to integer
+
+        print(f"Fetching user interactions for type: {interaction_type_filter}")
+        print(f"Current user ID (integer cast): {user_id_filter}")
+        print(f"Filter interaction_type value: {interaction_type_filter}")
+        print(f"Filter user_id value: {user_id_filter}")
+
+        # Even simpler query - filter only by user_id for now
+        query = select(Interaction).where(
+            Interaction.user_id == user_id_filter,
+            # Removed interaction_type filter temporarily
         )
-        
+
+        compiled_query = query.compile(db.bind) # Compile the query
+        print(f"Compiled SQL Query: {compiled_query}") # Log the compiled SQL
+
         result = await db.execute(query)
-        interactions = result.all()
-        
+        interactions = result.scalars().all()
+
+        print(f"Interactions fetched from DB: {interactions}")
+
         return [
             {
-                "id": content.id,
-                "title": content.title,
-                "abstract": content.abstract,
-                "source": content.source,
-                "url": content.url,
+                "interaction_id": interaction.id,
+                "content_id": interaction.content_id,
                 "interaction_type": interaction.interaction_type
             }
-            for content, interaction in interactions
+            for interaction in interactions
         ]
     except Exception as e:
         print(f"Error in get_user_interactions: {str(e)}")
@@ -778,4 +784,51 @@ async def reset_password(
     user.reset_token_expires = None
     await db.commit()
     
-    return {"message": "Password reset successful"} 
+    return {"message": "Password reset successful"}
+
+@app.get("/api/content/{content_id}")
+async def get_content(
+    content_id: int,
+    current_user: User = Depends(auth.get_current_user),
+    db: AsyncSession = Depends(get_articles_db)
+):
+    try:
+        query = select(Content).where(Content.id == content_id)
+        result = await db.execute(query)
+        content = result.scalar_one_or_none()
+        
+        if not content:
+            raise HTTPException(status_code=404, detail="Content not found")
+            
+        return {
+            "id": content.id,
+            "title": content.title,
+            "abstract": content.abstract,
+            "source": content.source,
+            "url": content.url,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/content/{content_id}/interaction-status")
+async def get_interaction_status(
+    content_id: int,
+    current_user: User = Depends(auth.get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    try:
+        query = select(Interaction).where(
+            and_(
+                Interaction.user_id == current_user.id,
+                Interaction.content_id == content_id
+            )
+        )
+        result = await db.execute(query)
+        interactions = result.scalars().all()
+        
+        return {
+            "isLiked": any(i.interaction_type == "like" for i in interactions),
+            "isSaved": any(i.interaction_type == "save" for i in interactions)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) 
