@@ -272,29 +272,40 @@ async def login_for_access_token(
 async def get_content(
     page: int = 1, 
     limit: int = 10,
+    current_user: Optional[User] = Depends(auth.get_current_user),
     db: AsyncSession = Depends(get_articles_db)
 ):
     try:
         offset = (page - 1) * limit
         
-        # Get total count
-        count_query = select(func.count(Content.id))
-        total_count = await db.execute(count_query)
-        total = total_count.scalar()
+        # Base query for content
+        query = select(Content)
         
-        # Get paginated content without paper_metadata
-        query = select(
-            Content.id,
-            Content.title,
-            Content.abstract,
-            Content.source,
-            Content.external_id,
-            Content.url,
-            Content.published_date
-        ).order_by(Content.published_date.desc()).offset(offset).limit(limit)
+        # If user is authenticated, exclude content they've interacted with
+        if current_user:
+            # Get all content IDs the user has interacted with
+            interaction_query = select(Interaction.content_id).where(
+                Interaction.user_id == current_user.id
+            )
+            result = await db.execute(interaction_query)
+            interacted_content_ids = [row[0] for row in result]
+            
+            # Exclude content that has been interacted with
+            if interacted_content_ids:
+                query = query.where(~Content.id.in_(interacted_content_ids))
+        
+        # Add ordering and pagination
+        query = query.order_by(Content.published_date.desc())
+        
+        # Get total count of filtered content
+        count_query = select(func.count()).select_from(query.subquery())
+        total_count = await db.scalar(count_query)
+        
+        # Apply pagination
+        query = query.offset(offset).limit(limit)
         
         result = await db.execute(query)
-        contents = result.all()
+        contents = result.scalars().all()
         
         return {
             "items": [
@@ -304,15 +315,14 @@ async def get_content(
                     "abstract": content.abstract,
                     "source": content.source,
                     "url": content.url,
-                    "published_date": content.published_date.isoformat() if content.published_date else None,
+                    "published_date": content.published_date.isoformat() if content.published_date else None
                 }
                 for content in contents
             ],
-            "has_more": (offset + limit) < total,
-            "total": total
+            "total": total_count,
+            "has_more": offset + limit < total_count
         }
     except Exception as e:
-        print(f"Error fetching content: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/login", response_class=HTMLResponse)
@@ -646,7 +656,7 @@ async def create_interaction(
 ):
     try:
         # Validate interaction type
-        valid_types = ['like', 'save', 'not_interested']
+        valid_types = ['like', 'save', 'not_interested', 'share', 'read_more']
         if interaction.interaction_type not in valid_types:
             raise HTTPException(
                 status_code=400,
@@ -665,10 +675,21 @@ async def create_interaction(
         existing_interaction = result.scalar_one_or_none()
 
         if existing_interaction:
-            # Remove the interaction if it exists
-            await db.delete(existing_interaction)
-            await db.commit()
-            return {"action": "removed"}
+            # For read_more and share, we want to allow multiple interactions
+            if interaction.interaction_type in ['read_more', 'share']:
+                new_interaction = Interaction(
+                    user_id=current_user.id,
+                    content_id=interaction.content_id,
+                    interaction_type=interaction.interaction_type
+                )
+                db.add(new_interaction)
+                await db.commit()
+                return {"action": "added"}
+            else:
+                # Remove the interaction if it exists (for like, save, not_interested)
+                await db.delete(existing_interaction)
+                await db.commit()
+                return {"action": "removed"}
         else:
             # Create new interaction
             new_interaction = Interaction(

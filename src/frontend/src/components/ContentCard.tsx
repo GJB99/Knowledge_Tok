@@ -51,7 +51,7 @@ export const ContentCard: React.FC<ContentCardProps> = ({ content }) => {
     checkInteractionStatus();
   }, [content.id]);
 
-  const handleInteraction = async (type: 'like' | 'save' | 'share' | 'not_interested') => {
+  const handleInteraction = async (type: 'like' | 'save' | 'share' | 'not_interested' | 'read_more') => {
     try {
       if (type === 'share') {
         if (navigator.share) {
@@ -60,11 +60,10 @@ export const ContentCard: React.FC<ContentCardProps> = ({ content }) => {
             text: content.abstract,
             url: content.url,
           });
-          return;
+        } else {
+          await navigator.clipboard.writeText(content.url);
+          alert('Link copied to clipboard!');
         }
-        await navigator.clipboard.writeText(content.url);
-        alert('Link copied to clipboard!');
-        return;
       }
 
       const token = localStorage.getItem('token');
@@ -74,8 +73,7 @@ export const ContentCard: React.FC<ContentCardProps> = ({ content }) => {
         return;
       }
 
-      console.log('Token:', token);
-
+      // Always record the interaction in the database
       const response = await fetch('http://localhost:8000/api/interactions', {
         method: 'POST',
         credentials: 'include',
@@ -95,19 +93,17 @@ export const ContentCard: React.FC<ContentCardProps> = ({ content }) => {
           alert('Unauthorized action. Please try logging in again.');
           return;
         }
-        console.error('Interaction failed:', await response.json());
-        alert('Failed to interact with content. Please try logging in again.');
-        return;
+        throw new Error(`Failed to ${type} the content.`);
       }
 
       const data = await response.json();
-
       if (type === 'like') setIsLiked(data.action === 'added');
       if (type === 'save') setIsSaved(data.action === 'added');
-      if (type === 'not_interested') {
-        setIsNotInterested(true);
-        // Optionally, you could remove the content from the feed
-        // or add some visual feedback
+      if (type === 'not_interested') setIsNotInterested(true);
+
+      // If this is a read_more interaction, open the URL after recording
+      if (type === 'read_more') {
+        window.open(content.url, '_blank');
       }
     } catch (error) {
       console.error('Error in handleInteraction:', error);
@@ -128,7 +124,14 @@ export const ContentCard: React.FC<ContentCardProps> = ({ content }) => {
       <p className="abstract">{content.abstract}</p>
       <div className="source-info">
         <span>{content.source}</span>
-        <a href={content.url} target="_blank" rel="noopener noreferrer">
+        <a 
+          href="#"
+          onClick={(e) => {
+            e.preventDefault();
+            handleInteraction('read_more');
+          }}
+          rel="noopener noreferrer"
+        >
           Read More
         </a>
       </div>
@@ -156,6 +159,14 @@ export const ContentCard: React.FC<ContentCardProps> = ({ content }) => {
           <i className="fas fa-bookmark" aria-hidden="true"></i>
         </button>
         <button
+          className={`interaction-button ${isNotInterested ? 'active' : ''}`}
+          onClick={() => handleInteraction('not_interested')}
+          aria-label="Not interested in this paper"
+          title="Not interested in this paper"
+        >
+          <i className="fas fa-ban" aria-hidden="true"></i>
+        </button>
+        <button
           className="interaction-button"
           onClick={() => handleInteraction('share')}
           aria-label="Share this paper"
@@ -163,14 +174,6 @@ export const ContentCard: React.FC<ContentCardProps> = ({ content }) => {
         >
           <span className="button-label">Share this paper</span>
           <i className="fas fa-share" aria-hidden="true"></i>
-        </button>
-        <button
-          className={`interaction-button ${isNotInterested ? 'active' : ''}`}
-          onClick={() => handleInteraction('not_interested')}
-          aria-label="Not interested in this paper"
-          title="Not interested in this paper"
-        >
-          <i className="fas fa-ban" aria-hidden="true"></i>
         </button>
       </div>
     </motion.div>
