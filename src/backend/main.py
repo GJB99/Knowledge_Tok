@@ -5,12 +5,11 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_, and_, func
 import requests
-from models import Content, User, Interaction
-import auth
-from database import get_db, init_db, AsyncSessionLocal, get_articles_db
+from .models import Content, User, Interaction
+from .database import get_db, init_db, AsyncSessionLocal, get_articles_db
 import asyncio
 from datetime import datetime, timedelta
-from seed import seed_initial_content
+from .seed import seed_initial_content
 from fastapi_mail import FastMail, MessageSchema, ConnectionConfig
 
 import secrets
@@ -19,13 +18,16 @@ import os
 import json
 import io
 from pydantic import BaseModel
-from utils import process_and_store_arxiv_results
+from .utils import process_and_store_arxiv_results
 from fastapi.staticfiles import StaticFiles
+from .auth import Auth
 
 app = FastAPI()
 
 # Load environment variables
 load_dotenv()
+
+auth = Auth()
 
 # Initialize database tables
 @app.on_event("startup")
@@ -59,11 +61,11 @@ mail_config = ConnectionConfig(
 )
 
 # Mount static files
-app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/static", StaticFiles(directory="src/backend/static"), name="static")
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
-    return FileResponse('static/index.html')
+    return FileResponse('src/backend/static/index.html')
 
 @app.get("/favicon.ico")
 async def favicon():

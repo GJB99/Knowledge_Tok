@@ -19,7 +19,7 @@ Base = declarative_base()
 
 async def init_db():
     # Import all models here to ensure they're registered with Base
-    from models import Content, User, Interest, Interaction
+    from .models import Content, User, Interest, Interaction
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 

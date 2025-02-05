@@ -1,5 +1,5 @@
 from datetime import datetime
-from models import Content
+from .models import Content
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 import xml.etree.ElementTree as ET

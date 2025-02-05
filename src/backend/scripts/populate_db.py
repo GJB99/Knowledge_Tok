@@ -194,10 +194,19 @@ ARXIV_CATEGORIES = {
     ]
 }
 
-async def fetch_arxiv_papers(max_results=50):
+async def fetch_arxiv_papers(max_results=100):
     client = arxiv.Client()
     # Use UTC timezone for consistency with arXiv's dates
     date_filter = datetime.now().astimezone().replace(microsecond=0) - timedelta(days=30)
+    
+    # First, get all existing paper IDs from the database
+    engine = create_async_engine(ARTICLES_DATABASE_URL)
+    async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    
+    async with async_session() as session:
+        existing_papers_query = select(Content.external_id)
+        result = await session.execute(existing_papers_query)
+        existing_paper_ids = {paper[0] for paper in result.fetchall()}
     
     papers = []
     for main_cat, subcats in ARXIV_CATEGORIES.items():
@@ -211,6 +220,11 @@ async def fetch_arxiv_papers(max_results=50):
             
             results = list(client.results(search))
             for paper in results:
+                # Skip if paper already exists in database
+                if paper.entry_id in existing_paper_ids:
+                    print(f"Skipping existing paper: {paper.title}")
+                    continue
+                    
                 # Both dates are now timezone-aware for comparison
                 if paper.published > date_filter:
                     papers.append({
@@ -227,7 +241,7 @@ async def fetch_arxiv_papers(max_results=50):
                             'published_date': paper.published.isoformat()
                         }
                     })
-            print(f"Fetched {len(results)} papers from {category}")
+            print(f"Fetched {len(results)} new papers from {category}")
     
     return papers
 
