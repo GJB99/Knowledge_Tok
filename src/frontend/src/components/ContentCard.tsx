@@ -8,6 +8,10 @@ interface ContentCardProps {
     abstract: string;
     source: string;
     url: string;
+    metadata?: {
+      categories?: string[];
+      published_date?: string;
+    };
   };
 }
 
@@ -118,12 +122,34 @@ export const ContentCard: React.FC<ContentCardProps> = ({ content }) => {
     exit: { opacity: 0, y: -20 }
   };
 
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+  };
+
   return (
     <motion.div {...motionProps}>
       <h2>{content.title}</h2>
+      {content.metadata?.categories && (
+        <div className="categories">
+          {content.metadata.categories.map((category, index) => (
+            <span key={index} className="category-tag">
+              {category}
+            </span>
+          ))}
+        </div>
+      )}
       <p className="abstract">{content.abstract}</p>
       <div className="source-info">
-        <span>{content.source}</span>
+        <div className="source-date">
+          <span>arXiv,</span>
+          {content.metadata?.published_date && (
+            <span className="date">{formatDate(content.metadata.published_date)}</span>
+          )}
+        </div>
         <a 
           href="#"
           onClick={(e) => {
@@ -142,9 +168,6 @@ export const ContentCard: React.FC<ContentCardProps> = ({ content }) => {
           aria-label={`${isLiked ? 'Unlike' : 'Like'} this paper`}
           title={`${isLiked ? 'Unlike' : 'Like'} this paper`}
         >
-          <span className="button-label">
-            {isLiked ? 'Unlike' : 'Like'} this paper
-          </span>
           <i className="fas fa-heart" aria-hidden="true"></i>
         </button>
         <button
@@ -153,10 +176,15 @@ export const ContentCard: React.FC<ContentCardProps> = ({ content }) => {
           aria-label={`${isSaved ? 'Remove from' : 'Save to'} bookmarks`}
           title={`${isSaved ? 'Remove from' : 'Save to'} bookmarks`}
         >
-          <span className="button-label">
-            {isSaved ? 'Remove from' : 'Save to'} bookmarks
-          </span>
           <i className="fas fa-bookmark" aria-hidden="true"></i>
+        </button>
+        <button
+          className="interaction-button"
+          onClick={() => handleInteraction('share')}
+          aria-label="Share this paper"
+          title="Share this paper"
+        >
+          <i className="fas fa-share" aria-hidden="true"></i>
         </button>
         <button
           className={`interaction-button ${isNotInterested ? 'active' : ''}`}
@@ -165,15 +193,6 @@ export const ContentCard: React.FC<ContentCardProps> = ({ content }) => {
           title="Not interested in this paper"
         >
           <i className="fas fa-ban" aria-hidden="true"></i>
-        </button>
-        <button
-          className="interaction-button"
-          onClick={() => handleInteraction('share')}
-          aria-label="Share this paper"
-          title="Share this paper"
-        >
-          <span className="button-label">Share this paper</span>
-          <i className="fas fa-share" aria-hidden="true"></i>
         </button>
       </div>
     </motion.div>

@@ -315,6 +315,7 @@ async def get_content(
                     "abstract": content.abstract,
                     "source": content.source,
                     "url": content.url,
+                    "metadata": content.paper_metadata,
                     "published_date": content.published_date.isoformat() if content.published_date else None
                 }
                 for content in contents
@@ -604,49 +605,36 @@ async def verify_email(token: str, db: AsyncSession = Depends(get_db)):
 
 @app.get("/api/user/interactions")
 async def get_user_interactions(
-    type: str,
     current_user: User = Depends(auth.get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     try:
-        user = current_user
-
-        interaction_type_filter = type
-        user_id_filter = int(user.id)  # Explicitly cast user.id to integer
-
-        print(f"Fetching user interactions for type: {interaction_type_filter}")
-        print(f"Current user ID (integer cast): {user_id_filter}")
-        print(f"Filter interaction_type value: {interaction_type_filter}")
-        print(f"Filter user_id value: {user_id_filter}")
-
-        # Even simpler query - filter only by user_id for now
-        query = select(Interaction).where(
-            Interaction.user_id == user_id_filter,
-            # Removed interaction_type filter temporarily
-        )
-
-        compiled_query = query.compile(db.bind) # Compile the query
-        print(f"Compiled SQL Query: {compiled_query}") # Log the compiled SQL
-
+        query = select(Interaction, Content).join(
+            Content, Interaction.content_id == Content.id
+        ).where(Interaction.user_id == current_user.id)
+        
         result = await db.execute(query)
-        interactions = result.scalars().all()
-
-        print(f"Interactions fetched from DB: {interactions}")
-
+        interactions = result.all()
+        
         return [
             {
                 "interaction_id": interaction.id,
                 "content_id": interaction.content_id,
-                "interaction_type": interaction.interaction_type
+                "interaction_type": interaction.interaction_type,
+                "content": {
+                    "id": content.id,
+                    "title": content.title,
+                    "abstract": content.abstract,
+                    "source": content.source,
+                    "url": content.url,
+                    "metadata": content.paper_metadata,
+                    "published_date": content.published_date.isoformat() if content.published_date else None
+                } if content else None
             }
-            for interaction in interactions
+            for interaction, content in interactions
         ]
     except Exception as e:
-        print(f"Error in get_user_interactions: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/interactions")
 async def create_interaction(

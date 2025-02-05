@@ -66,12 +66,48 @@
   color: #333;
 }
 
+.categories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.category-tag {
+  background-color: #f0f0f0;
+  padding: 4px 12px;
+  border-radius: 16px;
+  font-size: 0.85em;
+  color: #666;
+  border: 1px solid #e0e0e0;
+}
+
 .source-info {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-top: 15px;
   padding: 10px 0;
+}
+
+.source-date {
+  display: flex;
+  align-items: center;
+  font-size: 0.9em;
+  color: #666;
+  gap: 4px;
+}
+
+.source-date span {
+  display: inline-block;
+}
+
+.source-date .date {
+  margin-left: 4px;
+}
+
+.source-date .date::before {
+  content: none;
 }
 
 .interaction-buttons {
