@@ -180,20 +180,20 @@ export const ContentCard: React.FC<ContentCardProps> = ({ content }) => {
           <i className="fas fa-bookmark" aria-hidden="true"></i>
         </button>
         <button
-          className="interaction-button"
-          onClick={() => handleInteraction('share')}
-          aria-label="Share this paper"
-          title="Share this paper"
-        >
-          <i className="fas fa-share" aria-hidden="true"></i>
-        </button>
-        <button
           className={`interaction-button ${isNotInterested ? 'active' : ''}`}
           onClick={() => handleInteraction('not_interested')}
           aria-label="Not interested in this paper"
           title="Not interested in this paper"
         >
           <i className="fas fa-ban" aria-hidden="true"></i>
+        </button>
+        <button
+          className="interaction-button"
+          onClick={() => handleInteraction('share')}
+          aria-label="Share this paper"
+          title="Share this paper"
+        >
+          <i className="fas fa-share" aria-hidden="true"></i>
         </button>
       </div>
     </motion.div>
