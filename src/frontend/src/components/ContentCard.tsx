@@ -19,7 +19,6 @@ interface ContentCardProps {
 type MotionDivProps = HTMLMotionProps<"div"> & { className?: string };
 
 export const ContentCard: React.FC<ContentCardProps> = ({ content }) => {
-  console.log("ContentCard received content:", content);
   const [isLiked, setIsLiked] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
   const [isNotInterested, setIsNotInterested] = useState(false);

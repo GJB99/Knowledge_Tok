@@ -122,7 +122,8 @@ async def search_arxiv(
             Content.source,
             Content.external_id,
             Content.url,
-            Content.published_date
+            Content.published_date,
+            Content.paper_metadata
         ).where(
             or_(*[
                 or_(
@@ -146,7 +147,12 @@ async def search_arxiv(
                         "abstract": article.abstract,
                         "source": "arXiv",
                         "url": article.url,
-                        "published_date": article.published_date.isoformat() if article.published_date else None
+                        "metadata": {
+                            "categories": article.paper_metadata.get("categories", []) if article.paper_metadata else [],
+                            "published_date": article.published_date.isoformat() if article.published_date else None,
+                            "authors": article.paper_metadata.get("authors", []) if article.paper_metadata else [],
+                            "paper_id": article.paper_metadata.get("paper_id", "") if article.paper_metadata else ""
+                        }
                     }
                     for article in cached_articles[:max_results]
                 ],
@@ -182,7 +188,12 @@ async def search_arxiv(
                     "abstract": article.abstract,
                     "source": "arXiv",
                     "url": article.url,
-                    "published_date": article.published_date.isoformat() if article.published_date else None
+                    "metadata": {
+                        "categories": article.paper_metadata.get("categories", []) if article.paper_metadata else [],
+                        "published_date": article.published_date.isoformat() if article.published_date else None,
+                        "authors": article.paper_metadata.get("authors", []) if article.paper_metadata else [],
+                        "paper_id": article.paper_metadata.get("paper_id", "") if article.paper_metadata else ""
+                    }
                 }
                 for article in stored_articles
             ],
@@ -220,7 +231,12 @@ async def search_arxiv(
                         "abstract": article.abstract,
                         "source": "arXiv",
                         "url": article.url,
-                        "published_date": article.published_date.isoformat() if article.published_date else None
+                        "metadata": {
+                            "categories": article.paper_metadata.get("categories", []) if article.paper_metadata else [],
+                            "published_date": article.published_date.isoformat() if article.published_date else None,
+                            "authors": article.paper_metadata.get("authors", []) if article.paper_metadata else [],
+                            "paper_id": article.paper_metadata.get("paper_id", "") if article.paper_metadata else ""
+                        }
                     }
                     for article in stored_articles
                 ],
@@ -315,8 +331,12 @@ async def get_content(
                     "abstract": content.abstract,
                     "source": content.source,
                     "url": content.url,
-                    "metadata": content.paper_metadata,
-                    "published_date": content.published_date.isoformat() if content.published_date else None
+                    "metadata": {
+                        "categories": content.paper_metadata.get("categories", []) if content.paper_metadata else [],
+                        "published_date": content.published_date.isoformat() if content.published_date else None,
+                        "authors": content.paper_metadata.get("authors", []) if content.paper_metadata else [],
+                        "paper_id": content.paper_metadata.get("paper_id", "") if content.paper_metadata else ""
+                    }
                 }
                 for content in contents
             ],
@@ -797,9 +817,8 @@ async def reset_password(
     return {"message": "Password reset successful"}
 
 @app.get("/api/content/{content_id}")
-async def get_content(
+async def get_content_by_id(
     content_id: int,
-    current_user: User = Depends(auth.get_current_user),
     db: AsyncSession = Depends(get_articles_db)
 ):
     try:
@@ -816,6 +835,8 @@ async def get_content(
             "abstract": content.abstract,
             "source": content.source,
             "url": content.url,
+            "paper_metadata": content.paper_metadata,
+            "published_date": content.published_date.isoformat() if content.published_date else None
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

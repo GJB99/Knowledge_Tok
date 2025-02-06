@@ -127,13 +127,13 @@ export const Feed: React.FC = () => {
       }
       
       if (data.items && Array.isArray(data.items)) {
-        // Transform the data to include metadata in the correct format
         const transformedItems = data.items.map((item: SearchItem) => ({
           ...item,
           metadata: {
-            ...item.metadata,
-            categories: item.categories || item.metadata?.categories || [],
-            published_date: item.published_date || item.metadata?.published_date
+            categories: item.metadata?.categories || [],
+            published_date: item.metadata?.published_date || item.published_date,
+            authors: item.metadata?.authors || [],
+            paper_id: item.metadata?.paper_id || ''
           }
         }));
         setContents(transformedItems);

@@ -11,6 +11,12 @@ interface SavedContent {
     abstract: string;
     source: string;
     url: string;
+    metadata: {
+      categories: string[];
+      published_date: string;
+      authors: string[];
+      paper_id: string;
+    };
   };
 }
 
@@ -69,7 +75,19 @@ export const Profile: React.FC<ProfileProps> = ({ onHomeClick, onSearch, onLogou
           const content = await contentResponse.json();
           return {
             ...interaction,
-            content
+            content: {
+              id: content.id,
+              title: content.title,
+              abstract: content.abstract,
+              source: content.source,
+              url: content.url,
+              metadata: {
+                categories: content.paper_metadata?.categories || [],
+                published_date: content.paper_metadata?.published_date || content.published_date,
+                authors: content.paper_metadata?.authors || [],
+                paper_id: content.paper_metadata?.paper_id || ''
+              }
+            }
           };
         })
       );

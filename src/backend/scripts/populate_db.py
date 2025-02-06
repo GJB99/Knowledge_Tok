@@ -90,11 +90,12 @@ ARXIV_CATEGORIES = {
     ],
     'gr-qc': [],     # General Relativity and Quantum Cosmology
     'hep': [
-        'EX',  # High Energy Physics - Experiment
-        'LAT', # High Energy Physics - Lattice
-        'PH',  # High Energy Physics - Phenomenology
-        'TH',  # High Energy Physics - Theory
+        '-ex',  # High Energy Physics - Experiment
+        '-lat', # High Energy Physics - Lattice
+        '-ph',  # High Energy Physics - Phenomenology
+        '-th',  # High Energy Physics - Theory
     ],
+
     'math': [
         'AC',  # Commutative Algebra
         'AG',  # Algebraic Geometry
@@ -138,8 +139,8 @@ ARXIV_CATEGORIES = {
         'SI',  # Exactly Solvable and Integrable Systems
     ],
     'nucl': [
-        'EX',  # Nuclear Experiment
-        'TH',  # Nuclear Theory
+        '-ex',  # Nuclear Experiment
+        '-th',  # Nuclear Theory
     ],
     'physics': [
         'acc-ph',     # Accelerator Physics
@@ -199,10 +200,10 @@ ARXIV_CATEGORIES = {
     ]
 }
 
-async def fetch_arxiv_papers(max_results=100):
+async def fetch_arxiv_papers(max_results=1000):
     client = arxiv.Client()
     # Use UTC timezone for consistency with arXiv's dates
-    date_filter = datetime.now().astimezone().replace(microsecond=0) - timedelta(days=300)
+    date_filter = datetime.now().astimezone().replace(microsecond=0) - timedelta(days=3000)
     
     # First, get all existing paper IDs from the database
     engine = create_async_engine(ARTICLES_DATABASE_URL)
@@ -216,7 +217,7 @@ async def fetch_arxiv_papers(max_results=100):
     papers = []
     for main_cat, subcats in ARXIV_CATEGORIES.items():
         for subcat in subcats:
-            category = f"{main_cat}.{subcat}" if main_cat != subcat else main_cat
+            category = f"{main_cat}-{subcat}" if main_cat != subcat else main_cat
             search = arxiv.Search(
                 query=f"cat:{category}",
                 max_results=max_results,
