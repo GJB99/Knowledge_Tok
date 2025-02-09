@@ -102,9 +102,20 @@ export const ContentCard: React.FC<ContentCardProps> = ({ content }) => {
       }
 
       const data = await response.json();
+      
+      // Update local state immediately
       if (type === 'like') setIsLiked(data.action === 'added');
       if (type === 'save') setIsSaved(data.action === 'added');
-      if (type === 'not_interested') setIsNotInterested(true);
+      if (type === 'not_interested') setIsNotInterested(data.action === 'added');
+
+      // Refresh parent components
+      if (data.action === 'added') {
+        window.dispatchEvent(new CustomEvent('interaction-change'));
+      } else {
+        window.dispatchEvent(new CustomEvent('interaction-remove', {
+          detail: { contentId: content.id }
+        }));
+      }
 
       // If this is a read_more interaction, open the URL after recording
       if (type === 'read_more') {

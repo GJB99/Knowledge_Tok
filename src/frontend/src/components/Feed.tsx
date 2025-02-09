@@ -101,9 +101,9 @@ export const Feed: React.FC = () => {
     }
   };
 
-  const handleSearch = async () => {
+  const handleSearch = async (newPage: number = 1) => {
     if (!searchQuery.trim()) {
-      fetchContent(1);
+      fetchContent(newPage);
       return;
     }
     
@@ -111,40 +111,27 @@ export const Feed: React.FC = () => {
       setLoading(true);
       const token = localStorage.getItem('token');
       
-      const response = await fetch(`${API_BASE_URL}/search/arxiv?query=${encodeURIComponent(searchQuery)}`, {
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-          ...(token && { 'Authorization': `Bearer ${token}` })
+      const response = await fetch(
+        `${API_BASE_URL}/search/arxiv?query=${encodeURIComponent(searchQuery)}&page=${newPage}`, 
+        {
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+            ...(token && { 'Authorization': `Bearer ${token}` })
+          }
         }
-      });
-      
+      );
+
       const data = await response.json();
       
-      if (!response.ok) {
-        console.error('Search error:', data);
-        throw new Error(data.detail || 'Search failed');
-      }
+      if (!response.ok) throw new Error(data.detail || 'Search failed');
       
-      if (data.items && Array.isArray(data.items)) {
-        const transformedItems = data.items.map((item: SearchItem) => ({
-          ...item,
-          metadata: {
-            categories: item.metadata?.categories || [],
-            published_date: item.metadata?.published_date || item.published_date,
-            authors: item.metadata?.authors || [],
-            paper_id: item.metadata?.paper_id || ''
-          }
-        }));
-        setContents(transformedItems);
-        setCurrentPage(1);
-        setHasMore(data.has_more || false);
-      } else {
-        setContents([]);
-        setHasMore(false);
-      }
+      setContents(prev => newPage === 1 ? data.items : [...prev, ...data.items]);
+      setCurrentPage(newPage);
+      setHasMore(data.has_more);
+      
     } catch (error) {
-      console.error('Error searching content:', error);
+      console.error('Search error:', error);
       setContents([]);
       setHasMore(false);
     } finally {
@@ -152,9 +139,52 @@ export const Feed: React.FC = () => {
     }
   };
 
+  const loadMore = () => {
+    if (hasMore && !loading) {
+      fetchContent(currentPage + 1);
+    }
+  };
+
   useEffect(() => {
     fetchContent(1);
   }, []);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    let timeoutId: NodeJS.Timeout;
+
+    const handleScroll = () => {
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => {
+        if (
+          container.scrollTop + container.clientHeight >= container.scrollHeight - 20 &&
+          hasMore &&
+          !loading
+        ) {
+          loadMore();
+        }
+      }, 250); // 250ms debounce
+    };
+
+    container.addEventListener('scroll', handleScroll);
+
+    return () => {
+      container.removeEventListener('scroll', handleScroll);
+      clearTimeout(timeoutId);
+    };
+  }, [hasMore, loading, currentPage]); // Add dependencies
+
+  useEffect(() => {
+    const handleInteractionRemove = (event: Event) => {
+      if (event instanceof CustomEvent && event.detail && event.detail.contentId) {
+        setContents(prev => prev.filter(item => item.id !== event.detail.contentId));
+      }
+    };
+    window.addEventListener('interaction-remove', handleInteractionRemove);
+    return () => window.removeEventListener('interaction-remove', handleInteractionRemove);
+  }, []); // Add empty dependency array
 
   const handleProfileClick = () => {
     if (!isAuthenticated) {
@@ -208,7 +238,7 @@ export const Feed: React.FC = () => {
           />
           <button 
             className="search-button"
-            onClick={handleSearch}
+            onClick={() => handleSearch()}
           >
             Search
           </button>

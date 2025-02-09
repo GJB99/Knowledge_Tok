@@ -11,8 +11,8 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Use relative imports instead
-from models import Content, Base
-from database import DATABASE_URL, ARTICLES_DATABASE_URL
+from ..models import Content, Base
+from ..database import DATABASE_URL, ARTICLES_DATABASE_URL
 
 # Complete arXiv categories taxonomy
 ARXIV_CATEGORIES = {
@@ -200,7 +200,7 @@ ARXIV_CATEGORIES = {
     ]
 }
 
-async def fetch_arxiv_papers(max_results=1000):
+async def fetch_arxiv_papers(max_results=50):
     client = arxiv.Client()
     # Use UTC timezone for consistency with arXiv's dates
     date_filter = datetime.now().astimezone().replace(microsecond=0) - timedelta(days=3000)
@@ -217,7 +217,7 @@ async def fetch_arxiv_papers(max_results=1000):
     papers = []
     for main_cat, subcats in ARXIV_CATEGORIES.items():
         for subcat in subcats:
-            category = f"{main_cat}-{subcat}" if main_cat != subcat else main_cat
+            category = f"{main_cat}.{subcat}" if main_cat != subcat else main_cat
             search = arxiv.Search(
                 query=f"cat:{category}",
                 max_results=max_results,

@@ -1,10 +1,7 @@
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Table, Boolean, JSON, Text
 from sqlalchemy.orm import relationship
-from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime
-
-# Create Base here instead of importing
-Base = declarative_base()
+from .database import Base  # Import Base from database.py
 
 # Association table for user interests
 user_interests = Table(
@@ -30,6 +27,9 @@ class User(Base):
     interests = relationship("Interest", secondary=user_interests)
     interactions = relationship("Interaction", back_populates="user")
 
+    def __repr__(self):
+        return f"<User(username='{self.username}')>"
+
 class Interest(Base):
     __tablename__ = 'interests'
     
@@ -37,20 +37,27 @@ class Interest(Base):
     name = Column(String, unique=True, nullable=False)
     category = Column(String)
 
+    def __repr__(self):
+        return f"<Interest(name='{self.name}')>"
+
 class Content(Base):
     __tablename__ = 'content'
     
     id = Column(Integer, primary_key=True, index=True)
-    title = Column(String)
-    abstract = Column(Text)
+    title = Column(String, index=True)
+    abstract = Column(String)
     source = Column(String)
-    external_id = Column(String)
+    external_id = Column(String, unique=True)
     url = Column(String)
     published_date = Column(DateTime)
-    paper_metadata = Column(JSON)
+    paper_metadata = Column(JSON, nullable=True)
+    embedding = Column(JSON, nullable=True)
     
     # Relationships
     interactions = relationship("Interaction", back_populates="content")
+
+    def __repr__(self):
+        return f"<Content(title='{self.title}')>"
 
 class Interaction(Base):
     __tablename__ = 'interactions'
@@ -63,4 +70,7 @@ class Interaction(Base):
     
     # Relationships
     user = relationship("User", back_populates="interactions")
-    content = relationship("Content", back_populates="interactions") 
+    content = relationship("Content", back_populates="interactions")
+
+    def __repr__(self):
+        return f"<Interaction(user_id={self.user_id}, content_id={self.content_id}, type='{self.interaction_type}')>" 

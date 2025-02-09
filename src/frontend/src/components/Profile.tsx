@@ -3,9 +3,8 @@ import { ContentCard } from './ContentCard';
 
 interface SavedContent {
   interaction_id: number;
-  content_id: number;
   interaction_type: string;
-  content?: {
+  content: {
     id: number;
     title: string;
     abstract: string;
@@ -39,7 +38,11 @@ export const Profile: React.FC<ProfileProps> = ({ onHomeClick, onSearch, onLogou
         return;
       }
 
-      const response = await fetch(`http://localhost:8000/api/user/interactions?type=${activeTab}`, {
+      const response = await fetch(`http://localhost:8000/api/user/interactions?type=${
+        activeTab === 'likes' ? 'like' : 
+        activeTab === 'bookmarks' ? 'save' : 
+        'not_interested'
+      }`, {
         credentials: 'include',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -57,47 +60,23 @@ export const Profile: React.FC<ProfileProps> = ({ onHomeClick, onSearch, onLogou
 
       const interactions = await response.json();
       
-      // Fetch content details for each interaction
-      const contentDetails = await Promise.all(
-        interactions.map(async (interaction: SavedContent) => {
-          const contentResponse = await fetch(`http://localhost:8000/api/content/${interaction.content_id}`, {
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Accept': 'application/json'
-            }
-          });
-          
-          if (!contentResponse.ok) {
-            console.error(`Failed to fetch content for ID ${interaction.content_id}`);
-            return interaction;
+      // Directly use the interactions with embedded content
+      const validInteractions = interactions.filter((i: any) => i.content);
+      
+      // Map to match SavedContent type
+      const mappedContent = validInteractions.map((i: any) => ({
+        interaction_id: i.interaction_id,
+        interaction_type: i.interaction_type,
+        content: {
+          ...i.content,
+          metadata: {
+            ...i.content.metadata,
+            published_date: i.content.metadata.published_date || i.content.published_date
           }
-          
-          const content = await contentResponse.json();
-          return {
-            ...interaction,
-            content: {
-              id: content.id,
-              title: content.title,
-              abstract: content.abstract,
-              source: content.source,
-              url: content.url,
-              metadata: {
-                categories: content.paper_metadata?.categories || [],
-                published_date: content.paper_metadata?.published_date || content.published_date,
-                authors: content.paper_metadata?.authors || [],
-                paper_id: content.paper_metadata?.paper_id || ''
-              }
-            }
-          };
-        })
-      );
+        }
+      }));
 
-      // Filter content based on active tab
-      const filteredContent = contentDetails.filter(
-        item => item.interaction_type === (activeTab === 'likes' ? 'like' : activeTab === 'bookmarks' ? 'save' : 'not_interested')
-      );
-
-      setSavedContent(filteredContent);
+      setSavedContent(mappedContent);
     } catch (error) {
       console.error('Error fetching interactions:', error);
       alert('An unexpected error occurred. Please try again.');
@@ -107,6 +86,23 @@ export const Profile: React.FC<ProfileProps> = ({ onHomeClick, onSearch, onLogou
   useEffect(() => {
     fetchUserInteractions();
   }, [activeTab]);
+
+  useEffect(() => {
+    const handleInteractionChange = () => fetchUserInteractions();
+    const handleInteractionRemove = (event: Event) => {
+      if (event instanceof CustomEvent && event.detail && event.detail.contentId) {
+        setSavedContent(prev => prev.filter(item => item.content.id !== event.detail.contentId));
+      }
+    };
+
+    window.addEventListener('interaction-change', handleInteractionChange);
+    window.addEventListener('interaction-remove', handleInteractionRemove);
+
+    return () => {
+      window.removeEventListener('interaction-change', handleInteractionChange);
+      window.removeEventListener('interaction-remove', handleInteractionRemove);
+    };
+  }, []);
 
   return (
     <div className="profile-container">

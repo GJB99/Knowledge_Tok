@@ -3,7 +3,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, Fil
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_, and_, func
+from sqlalchemy import select, or_, and_, func, desc, Integer
 import requests
 from .models import Content, User, Interaction, Base
 from .database import get_db, init_db, AsyncSessionLocal, get_articles_db, engine
@@ -18,7 +18,7 @@ import os
 import json
 import io
 from pydantic import BaseModel, EmailStr
-from .utils import process_and_store_arxiv_results
+from .utils import process_and_store_arxiv_results, get_embedding, similarity_search # Import the functions
 from fastapi.staticfiles import StaticFiles
 from . import auth
 from passlib.context import CryptContext
@@ -108,14 +108,32 @@ async def favicon():
 
 @app.get("/search/arxiv")
 async def search_arxiv(
-    query: str = "machine learning OR deep learning OR artificial intelligence OR neural networks OR computer vision OR natural language processing",
-    max_results: int = 100,
+    query: str = "machine learning",
+    page: int = 1,
+    page_size: int = 10,
     db: AsyncSession = Depends(get_articles_db)
 ):
     try:
-        # First try to find cached results
-        search_terms = query.lower().split()
-        cached_query = select(
+        # Clean and validate input
+        search_terms = [term.strip().lower() for term in query.split() if len(term.strip()) >= 3]
+        if not search_terms:
+            return {"items": [], "total": 0, "has_more": False}
+
+        # Calculate offset
+        offset = (page - 1) * page_size
+        
+        # --- Keyword Search with Improved Relevance ---
+        title_conditions = [Content.title.ilike(f'%{term}%') for term in search_terms]
+        abstract_conditions = [Content.abstract.ilike(f'%{term}%') for term in search_terms]
+
+        # Build scoring with higher weight for title matches
+        score_expr = func.coalesce(0, 0)
+        for term in search_terms:
+            title_matches = (func.instr(func.lower(Content.title), term) > 0).cast(Integer) * 3
+            abstract_matches = (func.instr(func.lower(Content.abstract), term) > 0).cast(Integer)
+            score_expr += title_matches + abstract_matches
+
+        base_query = select(
             Content.id,
             Content.title,
             Content.abstract,
@@ -123,128 +141,34 @@ async def search_arxiv(
             Content.external_id,
             Content.url,
             Content.published_date,
-            Content.paper_metadata
+            Content.paper_metadata,
+            score_expr.label("score")
         ).where(
-            or_(*[
-                or_(
-                    Content.title.ilike(f'%{term}%'),
-                    Content.abstract.ilike(f'%{term}%')
-                )
-                for term in search_terms
-            ])
-        ).order_by(Content.published_date.desc())
-        
-        cached_results = await db.execute(cached_query)
-        cached_articles = cached_results.all()
+            or_(*title_conditions, *abstract_conditions)
+        ).order_by(
+            desc("score"), 
+            desc(Content.published_date)
+        )
 
-        # If we have cached results, return them
-        if cached_articles:
-            return {
-                "items": [
-                    {
-                        "id": article.id,
-                        "title": article.title,
-                        "abstract": article.abstract,
-                        "source": "arXiv",
-                        "url": article.url,
-                        "metadata": {
-                            "categories": article.paper_metadata.get("categories", []) if article.paper_metadata else [],
-                            "published_date": article.published_date.isoformat() if article.published_date else None,
-                            "authors": article.paper_metadata.get("authors", []) if article.paper_metadata else [],
-                            "paper_id": article.paper_metadata.get("paper_id", "") if article.paper_metadata else ""
-                        }
-                    }
-                    for article in cached_articles[:max_results]
-                ],
-                "has_more": len(cached_articles) > max_results,
-                "total": len(cached_articles)
-            }
+        # Get total count
+        count_query = select(func.count()).select_from(base_query.subquery())
+        total = await db.scalar(count_query)
 
-        # If no cached results or error, fetch from arXiv API
-        base_url = "http://export.arxiv.org/api/query"
-        params = {
-            "search_query": f"all:{query}",
-            "start": 0,
-            "max_results": max_results,
-            "sortBy": "lastUpdatedDate",
-            "sortOrder": "descending"
-        }
-        
-        response = requests.get(base_url, params=params)
-        
-        if response.status_code != 200:
-            raise HTTPException(
-                status_code=500, 
-                detail=f"Error fetching from arXiv: {response.status_code}"
-            )
-        
-        stored_articles = await process_and_store_arxiv_results(response.text, db)
-        
+        # Apply pagination
+        paginated_query = base_query.offset(offset).limit(page_size)
+        results = await db.execute(paginated_query)
+        articles = results.all()
+
         return {
-            "items": [
-                {
-                    "id": article.id,
-                    "title": article.title,
-                    "abstract": article.abstract,
-                    "source": "arXiv",
-                    "url": article.url,
-                    "metadata": {
-                        "categories": article.paper_metadata.get("categories", []) if article.paper_metadata else [],
-                        "published_date": article.published_date.isoformat() if article.published_date else None,
-                        "authors": article.paper_metadata.get("authors", []) if article.paper_metadata else [],
-                        "paper_id": article.paper_metadata.get("paper_id", "") if article.paper_metadata else ""
-                    }
-                }
-                for article in stored_articles
-            ],
-            "has_more": False,
-            "total": len(stored_articles)
+            "items": format_articles(articles),
+            "page": page,
+            "total": total,
+            "has_more": (offset + page_size) < total
         }
+
     except Exception as e:
-        print(f"Search error: {str(e)}")
-        # If database error occurs, try fetching directly from arXiv
-        try:
-            base_url = "http://export.arxiv.org/api/query"
-            params = {
-                "search_query": f"all:{query}",
-                "start": 0,
-                "max_results": max_results,
-                "sortBy": "lastUpdatedDate",
-                "sortOrder": "descending"
-            }
-            
-            response = requests.get(base_url, params=params)
-            
-            if response.status_code != 200:
-                raise HTTPException(
-                    status_code=500, 
-                    detail=f"Error fetching from arXiv: {response.status_code}"
-                )
-            
-            stored_articles = await process_and_store_arxiv_results(response.text, db)
-            
-            return {
-                "items": [
-                    {
-                        "id": article.id,
-                        "title": article.title,
-                        "abstract": article.abstract,
-                        "source": "arXiv",
-                        "url": article.url,
-                        "metadata": {
-                            "categories": article.paper_metadata.get("categories", []) if article.paper_metadata else [],
-                            "published_date": article.published_date.isoformat() if article.published_date else None,
-                            "authors": article.paper_metadata.get("authors", []) if article.paper_metadata else [],
-                            "paper_id": article.paper_metadata.get("paper_id", "") if article.paper_metadata else ""
-                        }
-                    }
-                    for article in stored_articles
-                ],
-                "has_more": False,
-                "total": len(stored_articles)
-            }
-        except Exception as nested_e:
-            raise HTTPException(status_code=500, detail=str(nested_e))
+        print(f"Search error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/search/core")
 def search_core(query: str, max_results: int = 10):
@@ -332,10 +256,10 @@ async def get_content(
                     "source": content.source,
                     "url": content.url,
                     "metadata": {
-                        "categories": content.paper_metadata.get("categories", []) if content.paper_metadata else [],
+                        "categories": content.paper_metadata.get("categories", []),
                         "published_date": content.published_date.isoformat() if content.published_date else None,
-                        "authors": content.paper_metadata.get("authors", []) if content.paper_metadata else [],
-                        "paper_id": content.paper_metadata.get("paper_id", "") if content.paper_metadata else ""
+                        "authors": content.paper_metadata.get("authors", []),
+                        "paper_id": content.paper_metadata.get("paper_id", "")
                     }
                 }
                 for content in contents
@@ -506,7 +430,7 @@ async def signup_page():
                         console.error('Error:', error);
                         alert('Registration failed');
                     }
-                });
+                }
             </script>
         </body>
     </html>
@@ -558,50 +482,38 @@ async def register(user: UserCreate, db: AsyncSession = Depends(get_db)):
                     <head>
                         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/katex/0.15.3/katex.min.css">
                     </head>
-                    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-                        <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px; border: 1px solid #dee2e6;">
-                            <h1 style="color: #1a91da; margin-bottom: 20px;">Welcome to Academic Feed!</h1>
-                            <p style="margin-bottom: 15px;">Thank you for joining our academic community. To ensure the security of your account, please verify your email address by clicking the button below:</p>
-                            
-                            <div style="text-align: center; margin: 30px 0;">
-                                <a href="{verification_url}" style="background-color: #1da1f2; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;">Verify Email Address</a>
-                            </div>
-                            
-                            <p style="margin-bottom: 15px;">If the button doesn't work, you can copy and paste this link into your browser:</p>
-                            <p style="background-color: #fff; padding: 10px; border-radius: 3px; font-size: 14px; word-break: break-all;">{verification_url}</p>
-                            
-                            <p style="color: #666; font-size: 14px; margin-top: 30px;">This link will expire in 24 hours. If you didn't create an account, you can safely ignore this email.</p>
-                            
-                            <hr style="border: none; border-top: 1px solid #dee2e6; margin: 20px 0;">
-                            
-                            <p style="color: #666; font-size: 12px; text-align: center;">© 2024 Academic Feed. All rights reserved.</p>
-                        </div>
+                    <body>
+                        <p>Hi {user.username},</p>
+                        <p>Thank you for registering with Academic Feed. Please click the link below to verify your email address:</p>
+                        <p><a href="{verification_url}">Verify Email</a></p>
+                        <p>If you did not register for an account, please ignore this email.</p>
+                        <p>Best regards,<br>The Academic Feed Team</p>
                     </body>
                 </html>
             """,
             subtype="html"
         )
         
-        await fm.send_message(message)
-        
-        # Save user after successful email send
+        background_tasks = BackgroundTasks()
+        background_tasks.add_task(fm.send_message, message)
         db.add(db_user)
         await db.commit()
         await db.refresh(db_user)
         
-        return {
-            "token": "pending_verification",
-            "message": "Account created. Please check your email to verify your account before logging in."
-        }
-            
-    except Exception as e:
-        print(f"Error sending verification email: {e}")
-        # Rollback the database transaction if it failed
-        await db.rollback()
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to create account. Please try again later."
+        # Create a JWT token for the newly registered user
+        access_token_expires = timedelta(minutes=auth.ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = create_access_token(
+            data={"sub": db_user.username}, expires_delta=access_token_expires
         )
+        
+        return {
+            "token": access_token,
+            "message": "Registration successful! Please check your email to verify your account."
+        }
+    except Exception as e:
+        await db.rollback()
+        print(f"Error during registration: {e}")
+        raise HTTPException(status_code=500, detail="Registration failed. Please try again later.")
 
 @app.get("/verify/{token}")
 async def verify_email(token: str, db: AsyncSession = Depends(get_db)):
@@ -609,126 +521,122 @@ async def verify_email(token: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(query)
     user = result.scalar_one_or_none()
     
-
     if not user:
-        raise HTTPException(status_code=400, detail="Invalid verification token")
-    
+        raise HTTPException(status_code=404, detail="Invalid verification token")
+        
+    if user.is_verified:
+        return {"message": "Account already verified"}
+        
     user.is_verified = True
-    user.verification_token = None
+    user.verification_token = None  # Clear the token after verification
     await db.commit()
     
-    return HTMLResponse(content='''
-        <html>
-            <head>
-                <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/katex/0.15.3/katex.min.css">
-            </head>
-            <body>
-                <h1>Email verified successfully!</h1>
-                <p>You can now <a href="/login">login</a> to your account.</p>
-            </body>
-        </html>
-    ''')
-
-@app.get("/api/user/interactions")
-async def get_user_interactions(
-    current_user: User = Depends(auth.get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    try:
-        query = select(Interaction, Content).join(
-            Content, Interaction.content_id == Content.id
-        ).where(Interaction.user_id == current_user.id)
-        
-        result = await db.execute(query)
-        interactions = result.all()
-        
-        return [
-            {
-                "interaction_id": interaction.id,
-                "content_id": interaction.content_id,
-                "interaction_type": interaction.interaction_type,
-                "content": {
-                    "id": content.id,
-                    "title": content.title,
-                    "abstract": content.abstract,
-                    "source": content.source,
-                    "url": content.url,
-                    "metadata": content.paper_metadata,
-                    "published_date": content.published_date.isoformat() if content.published_date else None
-                } if content else None
-            }
-            for interaction, content in interactions
-        ]
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return {"message": "Email verified successfully. You can now log in."}
 
 @app.post("/api/interactions")
 async def create_interaction(
     interaction: InteractionCreate,
     current_user: User = Depends(auth.get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_articles_db)
 ):
-    try:
-        # Validate interaction type
-        valid_types = ['like', 'save', 'not_interested', 'share', 'read_more']
-        if interaction.interaction_type not in valid_types:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid interaction type. Must be one of: {', '.join(valid_types)}"
-            )
-
-        # Check if interaction already exists
-        query = select(Interaction).where(
+    # Check for existing interaction
+    existing = await db.execute(
+        select(Interaction).where(
             and_(
                 Interaction.user_id == current_user.id,
                 Interaction.content_id == interaction.content_id,
                 Interaction.interaction_type == interaction.interaction_type
             )
         )
-        result = await db.execute(query)
-        existing_interaction = result.scalar_one_or_none()
+    )
+    existing = existing.scalar_one_or_none()
+    
+    if existing:
+        await db.delete(existing)
+        action = "removed"
+    else:
+        new_interaction = Interaction(
+            user_id=current_user.id,
+            content_id=interaction.content_id,
+            interaction_type=interaction.interaction_type
+        )
+        db.add(new_interaction)
+        action = "added"
+    
+    await db.commit()
+    return {"status": "success", "action": action}
 
-        if existing_interaction:
-            # For read_more and share, we want to allow multiple interactions
-            if interaction.interaction_type in ['read_more', 'share']:
-                new_interaction = Interaction(
-                    user_id=current_user.id,
-                    content_id=interaction.content_id,
-                    interaction_type=interaction.interaction_type
-                )
-                db.add(new_interaction)
-                await db.commit()
-                return {"action": "added"}
-            else:
-                # Remove the interaction if it exists (for like, save, not_interested)
-                await db.delete(existing_interaction)
-                await db.commit()
-                return {"action": "removed"}
-        else:
-            # Create new interaction
-            new_interaction = Interaction(
-                user_id=current_user.id,
-                content_id=interaction.content_id,
-                interaction_type=interaction.interaction_type
-            )
-            db.add(new_interaction)
-            await db.commit()
-            return {"action": "added"}
+@app.get("/api/user/interactions")
+async def get_user_interactions(
+    type: str,
+    current_user: User = Depends(auth.get_current_user),
+    db: AsyncSession = Depends(get_articles_db)
+):
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+        
+    # Join interactions with content
+    query = select(
+        Interaction,
+        Content
+    ).join(
+        Content, Interaction.content_id == Content.id
+    ).where(
+        and_(
+            Interaction.user_id == current_user.id,
+            Interaction.interaction_type == type
+        )
+    )
+    
+    result = await db.execute(query)
+    interactions = result.all()
+    
+    return [
+        {
+            "interaction_id": interaction.id,
+            "interaction_type": interaction.interaction_type,
+            "content": {
+                "id": content.id,
+                "title": content.title,
+                "abstract": content.abstract,
+                "source": content.source,
+                "url": content.url,
+                "metadata": {
+                    "categories": content.paper_metadata.get("categories", []),
+                    "published_date": content.published_date.isoformat() if content.published_date else None,
+                    "authors": content.paper_metadata.get("authors", []),
+                    "paper_id": content.paper_metadata.get("paper_id", "")
+                }
+            }
+        } for interaction, content in interactions
+    ]
 
-    except Exception as e:
-        await db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+@app.get("/api/content/{content_id}")
+async def get_content_by_id(content_id: int, db: AsyncSession = Depends(get_articles_db)):
+    query = select(Content).where(Content.id == content_id)
+    result = await db.execute(query)
+    content = result.scalar_one_or_none()
+    
+    if not content:
+        raise HTTPException(status_code=404, detail="Content not found")
+        
+    return {
+        "id": content.id,
+        "title": content.title,
+        "abstract": content.abstract,
+        "source": content.source,
+        "url": content.url,
+        "paper_metadata": content.paper_metadata
+    }
 
-@app.get("/api/debug/db-contents")
-async def get_db_contents(db: AsyncSession = Depends(get_articles_db)):
+@app.get("/feed")
+async def get_feed_data(db: AsyncSession = Depends(get_articles_db)):
     try:
-        # Get all content
-        query = select(Content)
+        query = select(Content).order_by(Content.published_date.desc()).limit(10)
         result = await db.execute(query)
         content = result.scalars().all()
         
         return {
-            "total_items": len(content),
             "items": [
                 {
                     "id": item.id,
@@ -736,7 +644,7 @@ async def get_db_contents(db: AsyncSession = Depends(get_articles_db)):
                     "abstract": item.abstract,
                     "source": item.source,
                     "url": item.url,
-                    "published_date": item.published_date.isoformat() if item.published_date else None,
+                    "metadata": item.paper_metadata
                 }
                 for item in content
             ]
@@ -816,51 +724,45 @@ async def reset_password(
     
     return {"message": "Password reset successful"}
 
-@app.get("/api/content/{content_id}")
-async def get_content_by_id(
-    content_id: int,
-    db: AsyncSession = Depends(get_articles_db)
-):
-    try:
-        query = select(Content).where(Content.id == content_id)
-        result = await db.execute(query)
-        content = result.scalar_one_or_none()
-        
-        if not content:
-            raise HTTPException(status_code=404, detail="Content not found")
-            
-        return {
-            "id": content.id,
-            "title": content.title,
-            "abstract": content.abstract,
-            "source": content.source,
-            "url": content.url,
-            "paper_metadata": content.paper_metadata,
-            "published_date": content.published_date.isoformat() if content.published_date else None
+def format_articles(articles):
+    return [
+        {
+            "id": article.id,
+            "title": article.title,
+            "abstract": article.abstract,
+            "source": "arXiv",
+            "url": article.url,
+            "metadata": {
+                "categories": article.paper_metadata.get("categories", []),
+                "published_date": article.published_date.isoformat() if article.published_date else None,
+                "authors": article.paper_metadata.get("authors", []),
+                "paper_id": article.paper_metadata.get("paper_id", "")
+            }
         }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        for article in articles
+    ]
 
 @app.get("/api/content/{content_id}/interaction-status")
 async def get_interaction_status(
     content_id: int,
     current_user: User = Depends(auth.get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_articles_db)
 ):
-    try:
-        query = select(Interaction).where(
-            and_(
-                Interaction.user_id == current_user.id,
-                Interaction.content_id == content_id
-            )
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    # Check for existing interactions of different types
+    query = select(Interaction).where(
+        and_(
+            Interaction.user_id == current_user.id,
+            Interaction.content_id == content_id
         )
-        result = await db.execute(query)
-        interactions = result.scalars().all()
-        
-        return {
-            "isLiked": any(i.interaction_type == "like" for i in interactions),
-            "isSaved": any(i.interaction_type == "save" for i in interactions),
-            "isNotInterested": any(i.interaction_type == "not_interested" for i in interactions)
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) 
+    )
+    result = await db.execute(query)
+    interactions = result.scalars().all()
+
+    return {
+        "isLiked": any(i.interaction_type == "like" for i in interactions),
+        "isSaved": any(i.interaction_type == "save" for i in interactions),
+        "isNotInterested": any(i.interaction_type == "not_interested" for i in interactions)
+    } 
