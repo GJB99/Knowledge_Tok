@@ -58,9 +58,7 @@ async def generate_embeddings():
                 # Use the stored title
                 print(f"Error generating embedding for {content_title}: {e}")
                 await session.rollback()  # Rollback if error
-                continue # added continue
-            finally:
-                await session.close() # close session
+                continue
 
         print("Embedding generation complete.")
     await engine.dispose()

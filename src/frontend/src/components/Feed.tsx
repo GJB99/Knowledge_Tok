@@ -212,6 +212,9 @@ export const Feed: React.FC = () => {
             setHasMore(true);
             fetchContent(1).then(() => {
               setContents(prev => prev.filter(content => content !== null));
+              if (containerRef.current) {
+                containerRef.current.scrollTop = 0;
+              }
             });
           }}
           aria-label="Go to home feed"

@@ -1,3 +1,12 @@
+html, body {
+  height: 100%;
+  margin: 0; /* Important: Remove default body margin */
+}
+
+#root {
+  height: 100%;
+}
+
 .app-container {
   width: 100%;
   display: flex;
