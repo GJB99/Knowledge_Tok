@@ -25,6 +25,7 @@ from passlib.context import CryptContext
 from jose import JWTError, jwt
 from typing import Optional
 from .auth import authenticate_user
+import numpy as np
 
 app = FastAPI()
 
@@ -766,3 +767,89 @@ async def get_interaction_status(
         "isSaved": any(i.interaction_type == "save" for i in interactions),
         "isNotInterested": any(i.interaction_type == "not_interested" for i in interactions)
     } 
+
+@app.get("/api/recommendations")
+async def get_recommendations(
+    current_user: Optional[User] = Depends(auth.get_current_user),
+    page: int = 1,
+    page_size: int = 10,
+    db: AsyncSession = Depends(get_articles_db)
+):
+    try:
+        # If user is not authenticated, return latest papers
+        if not current_user:
+            query = select(Content).order_by(Content.published_date.desc())
+            query = query.offset((page - 1) * page_size).limit(page_size)
+            result = await db.execute(query)
+            content = result.scalars().all()
+            return format_content_response(content, page, page_size)
+
+        # Get user's liked and bookmarked content
+        liked_query = select(Content).join(
+            Interaction,
+            and_(
+                Interaction.content_id == Content.id,
+                Interaction.user_id == current_user.id,
+                Interaction.interaction_type.in_(['like', 'save'])
+            )
+        )
+        liked_result = await db.execute(liked_query)
+        liked_content = liked_result.scalars().all()
+
+        # Get content IDs to exclude (already interacted with)
+        exclude_query = select(Interaction.content_id).where(
+            Interaction.user_id == current_user.id
+        )
+        exclude_result = await db.execute(exclude_query)
+        content_ids_to_exclude = [row[0] for row in exclude_result]
+
+        if not liked_content:
+            # If no interactions yet, return latest papers
+            query = select(Content).order_by(Content.published_date.desc())
+            query = query.offset((page - 1) * page_size).limit(page_size)
+            result = await db.execute(query)
+            content = result.scalars().all()
+            return format_content_response(content, page, page_size)
+
+        # Calculate average embedding from liked/saved content
+        embeddings = [np.array(content.embedding) for content in liked_content if content.embedding]
+        if not embeddings:
+            return format_content_response([], page, page_size)
+
+        avg_embedding = np.mean(embeddings, axis=0).tolist()
+
+        # Get similar content using existing similarity_search function
+        similar_content = await similarity_search(
+            avg_embedding,
+            db,
+            content_ids_to_exclude=content_ids_to_exclude,
+            limit=page_size
+        )
+
+        return format_content_response(similar_content, page, page_size)
+
+    except Exception as e:
+        print(f"Error in recommendations: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+def format_content_response(content, page, page_size):
+    return {
+        "items": [
+            {
+                "id": item.id,
+                "title": item.title,
+                "abstract": item.abstract,
+                "source": item.source,
+                "url": item.url,
+                "metadata": {
+                    "categories": item.paper_metadata.get("categories", []),
+                    "published_date": item.published_date.isoformat() if item.published_date else None,
+                    "authors": item.paper_metadata.get("authors", []),
+                    "paper_id": item.paper_metadata.get("paper_id", "")
+                }
+            }
+            for item in content
+        ],
+        "page": page,
+        "has_more": len(content) == page_size
+    }

@@ -60,7 +60,7 @@ export const Feed: React.FC = () => {
       setLoading(true);
       const token = localStorage.getItem('token');
       
-      const response = await fetch(`${API_BASE_URL}/api/content?page=${page}&limit=10`, {
+      const response = await fetch(`${API_BASE_URL}/api/recommendations?page=${page}&page_size=10`, {
         headers: {
           'Accept': 'application/json',
           'Content-Type': 'application/json',
@@ -104,6 +104,9 @@ export const Feed: React.FC = () => {
   const handleSearch = async (newPage: number = 1) => {
     if (!searchQuery.trim()) {
       fetchContent(newPage);
+      if (containerRef.current) {
+        containerRef.current.scrollTop = 0;
+      }
       return;
     }
     
@@ -112,7 +115,7 @@ export const Feed: React.FC = () => {
       const token = localStorage.getItem('token');
       
       const response = await fetch(
-        `${API_BASE_URL}/search/arxiv?query=${encodeURIComponent(searchQuery)}&page=${newPage}`, 
+        `${API_BASE_URL}/search/arxiv?query=${encodeURIComponent(searchQuery)}&page=${newPage}&page_size=10`, 
         {
           headers: {
             'Accept': 'application/json',
@@ -122,13 +125,19 @@ export const Feed: React.FC = () => {
         }
       );
 
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Search failed');
+      }
+      
       const data = await response.json();
-      
-      if (!response.ok) throw new Error(data.detail || 'Search failed');
-      
       setContents(prev => newPage === 1 ? data.items : [...prev, ...data.items]);
       setCurrentPage(newPage);
       setHasMore(data.has_more);
+      
+      if (containerRef.current) {
+        containerRef.current.scrollTop = 0;
+      }
       
     } catch (error) {
       console.error('Search error:', error);
