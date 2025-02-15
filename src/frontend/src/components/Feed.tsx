@@ -44,162 +44,57 @@ export const Feed: React.FC = () => {
   const [contents, setContents] = useState<Content[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [isLoadingBackground, setIsLoadingBackground] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [showProfile, setShowProfile] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isAuthenticated, setIsAuthenticated] = useState(!!localStorage.getItem('token'));
+  const [shownContentIds, setShownContentIds] = useState<Set<number>>(new Set());
+  const [nextPageContent, setNextPageContent] = useState<Content[]>([]);
+  const containerRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const [showCategories, setShowCategories] = useState(false);
-
-  const fetchContent = async (page: number) => {
-    if (loading || !hasMore) return;
-    
-    try {
-      setLoading(true);
-      const token = localStorage.getItem('token');
-      
-      const response = await fetch(`${API_BASE_URL}/api/recommendations?page=${page}&page_size=10`, {
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-          ...(token && { 'Authorization': `Bearer ${token}` })
-        }
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
-      }
-      
-      const data = await response.json();
-      
-      if (data.items && Array.isArray(data.items)) {
-        if (page === 1) {
-          setContents(data.items);
-        } else {
-          setContents(prev => [...prev, ...data.items]);
-        }
-        setCurrentPage(page);
-        setHasMore(data.has_more);
-      } else {
-        console.error('Invalid data format:', data);
-        if (page === 1) {
-          setContents([]);
-          setHasMore(false);
-        }
-      }
-    } catch (error) {
-      console.error('Error fetching content:', error);
-      if (page === 1) {
-        setContents([]);
-        setHasMore(false);
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSearch = async (newPage: number = 1) => {
-    if (!searchQuery.trim()) {
-      fetchContent(newPage);
-      if (containerRef.current) {
-        containerRef.current.scrollTop = 0;
-      }
-      return;
-    }
-    
-    try {
-      setLoading(true);
-      const token = localStorage.getItem('token');
-      
-      const response = await fetch(
-        `${API_BASE_URL}/search/arxiv?query=${encodeURIComponent(searchQuery)}&page=${newPage}&page_size=10`, 
-        {
-          headers: {
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
-            ...(token && { 'Authorization': `Bearer ${token}` })
-          }
-        }
-      );
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Search failed');
-      }
-      
-      const data = await response.json();
-      setContents(prev => newPage === 1 ? data.items : [...prev, ...data.items]);
-      setCurrentPage(newPage);
-      setHasMore(data.has_more);
-      
-      if (containerRef.current) {
-        containerRef.current.scrollTop = 0;
-      }
-      
-    } catch (error) {
-      console.error('Search error:', error);
-      setContents([]);
-      setHasMore(false);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadMore = () => {
-    if (hasMore && !loading) {
-      fetchContent(currentPage + 1);
-    }
-  };
+  const [currentView, setCurrentView] = useState<'feed' | 'search' | 'profile'>('feed');
+  const [lastFeedContents, setLastFeedContents] = useState<Content[]>([]);
+  const [lastSearchContents, setLastSearchContents] = useState<Content[]>([]);
 
   useEffect(() => {
-    fetchContent(1);
+    const token = localStorage.getItem('token');
+    if (token) {
+      setIsAuthenticated(true);
+      fetchContent(1);
+    }
   }, []);
 
+  const loadMore = () => {
+    if (hasMore && !loading && nextPageContent.length > 0) {
+      setContents(prev => [...prev, ...nextPageContent]);
+      setNextPageContent([]);
+      fetchContent(currentPage + 1, true);
+    }
+  };
+
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-
-    let timeoutId: NodeJS.Timeout;
-
     const handleScroll = () => {
-      clearTimeout(timeoutId);
-      timeoutId = setTimeout(() => {
-        if (
-          container.scrollTop + container.clientHeight >= container.scrollHeight - 20 &&
-          hasMore &&
-          !loading
-        ) {
+      if (containerRef.current) {
+        const { scrollTop, scrollHeight, clientHeight } = containerRef.current;
+        if (scrollHeight - scrollTop <= clientHeight * 1.5) {
           loadMore();
         }
-      }, 250); // 250ms debounce
-    };
-
-    container.addEventListener('scroll', handleScroll);
-
-    return () => {
-      container.removeEventListener('scroll', handleScroll);
-      clearTimeout(timeoutId);
-    };
-  }, [hasMore, loading, currentPage]); // Add dependencies
-
-  useEffect(() => {
-    const handleInteractionRemove = (event: Event) => {
-      if (event instanceof CustomEvent && event.detail && event.detail.contentId) {
-        setContents(prev => prev.filter(item => item.id !== event.detail.contentId));
       }
     };
-    window.addEventListener('interaction-remove', handleInteractionRemove);
-    return () => window.removeEventListener('interaction-remove', handleInteractionRemove);
-  }, []); // Add empty dependency array
+
+    containerRef.current?.addEventListener('scroll', handleScroll);
+    return () => containerRef.current?.removeEventListener('scroll', handleScroll);
+  }, [hasMore, loading, nextPageContent]);
 
   const handleProfileClick = () => {
     if (!isAuthenticated) {
       setShowLoginModal(true);
     } else {
-      setShowProfile(!showProfile);
+      setCurrentView('profile');
+      setShowProfile(true);
     }
   };
 
@@ -210,22 +105,137 @@ export const Feed: React.FC = () => {
     window.location.href = '/login';
   };
 
+  const handleSearch = async (newPage: number = 1) => {
+    if (!searchQuery.trim()) {
+      setCurrentView('feed');
+      setContents(lastFeedContents);
+      return;
+    }
+    
+    setCurrentView('search');
+    try {
+      setLoading(true);
+      const token = localStorage.getItem('token');
+      
+      const response = await fetch(
+        `${API_BASE_URL}/search/arxiv?query=${encodeURIComponent(searchQuery)}&page=${newPage}&page_size=10`,
+        {
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+            ...(token && { 'Authorization': `Bearer ${token}` })
+          }
+        }
+      );
+
+      if (!response.ok) throw new Error('Search failed');
+      
+      const data = await response.json();
+      const newContents = newPage === 1 ? data.items : [...contents, ...data.items];
+      setContents(newContents);
+      setLastSearchContents(newContents);
+      setCurrentPage(newPage);
+      setHasMore(data.has_more);
+      
+    } catch (error) {
+      console.error('Search error:', error);
+      setContents([]);
+      setHasMore(false);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchContent = async (page: number, isBackground: boolean = false) => {
+    if (!isBackground && loading || isBackground && isLoadingBackground || !hasMore) return;
+    
+    let abortController = new AbortController();
+    
+    try {
+      if (isBackground) {
+        setIsLoadingBackground(true);
+      } else {
+        setLoading(true);
+      }
+      
+      const token = localStorage.getItem('token');
+      const excludeIds = Array.from(shownContentIds).join(',');
+      const response = await fetch(
+        `${API_BASE_URL}/api/recommendations?page=${page}&page_size=10&exclude=${excludeIds}`, 
+        {
+          signal: abortController.signal,
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+            ...(token && { 'Authorization': `Bearer ${token}` })
+          }
+        }
+      );
+      
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      
+      const data = await response.json();
+      
+      if (data.items && Array.isArray(data.items)) {
+        const newIds = data.items.map((item: Content) => item.id);
+        setShownContentIds(prev => {
+          const updatedSet = new Set(Array.from(prev));
+          newIds.forEach((id: number) => updatedSet.add(id));
+          return updatedSet;
+        });
+
+        if (isBackground) {
+          setNextPageContent(data.items);
+        } else {
+          const newContents = page === 1 ? data.items : [...contents, ...data.items];
+          setContents(newContents);
+          setLastFeedContents(newContents);
+          if (data.has_more) {
+            fetchContent(page + 1, true);
+          }
+        }
+        setCurrentPage(page);
+        setHasMore(data.has_more);
+      }
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        if (error.name === 'AbortError') {
+          console.log('Fetch aborted');
+          return;
+        }
+        console.error('Error fetching content:', error.message);
+      } else {
+        console.error('Unknown error fetching content');
+      }
+    } finally {
+      if (isBackground) {
+        setIsLoadingBackground(false);
+      } else {
+        setLoading(false);
+      }
+    }
+    
+    return () => {
+      abortController.abort();
+    };
+  };
+
+  const handleHomeClick = () => {
+    setShowProfile(false);
+    setSearchQuery('');
+    setCurrentView('feed');
+    setContents(lastFeedContents);
+    if (lastFeedContents.length === 0) {
+      fetchContent(1);
+    }
+  };
+
   return (
     <div className="app-container">
       <header className="app-header">
         <button 
           className="home-button"
-          onClick={() => {
-            setSearchQuery('');
-            setCurrentPage(1);
-            setHasMore(true);
-            fetchContent(1).then(() => {
-              setContents(prev => prev.filter(content => content !== null));
-              if (containerRef.current) {
-                containerRef.current.scrollTop = 0;
-              }
-            });
-          }}
+          onClick={handleHomeClick}
           aria-label="Go to home feed"
           title="Go to home feed"
         >
@@ -287,17 +297,11 @@ export const Feed: React.FC = () => {
 
       {showProfile ? (
         <Profile 
-          onHomeClick={() => {
-            setShowProfile(false);
-            setSearchQuery('');
-            setCurrentPage(1);
-            setHasMore(true);
-            fetchContent(1);
-          }}
+          onHomeClick={handleHomeClick}
           onSearch={(query: string) => {
             setShowProfile(false);
             setSearchQuery(query);
-            handleSearch();
+            handleSearch(1);
           }}
           onLogout={handleLogout}
         />
@@ -316,7 +320,7 @@ export const Feed: React.FC = () => {
             <ContentCard key={`${content.id}-${index}`} content={content} />
           ))}
           
-          {loading && (
+          {(loading || isLoadingBackground) && (
             <div className="loading">
               Loading more papers...
             </div>

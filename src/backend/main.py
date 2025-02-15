@@ -773,16 +773,34 @@ async def get_recommendations(
     current_user: Optional[User] = Depends(auth.get_current_user),
     page: int = 1,
     page_size: int = 10,
+    exclude: str = "",
     db: AsyncSession = Depends(get_articles_db)
 ):
     try:
+        # Parse excluded content IDs
+        excluded_ids = set(int(id_) for id_ in exclude.split(',') if id_.strip().isdigit())
+        
         # If user is not authenticated, return latest papers
         if not current_user:
-            query = select(Content).order_by(Content.published_date.desc())
+            query = select(Content).where(
+                ~Content.id.in_(excluded_ids) if excluded_ids else true()
+            ).order_by(Content.published_date.desc())
+            
+            # Get total count for pagination
+            count_query = select(func.count()).select_from(query.subquery())
+            total = await db.scalar(count_query)
+            
+            # Apply pagination
             query = query.offset((page - 1) * page_size).limit(page_size)
             result = await db.execute(query)
             content = result.scalars().all()
-            return format_content_response(content, page, page_size)
+            
+            return {
+                "items": format_articles(content),
+                "page": page,
+                "total": total,
+                "has_more": ((page - 1) * page_size + len(content)) < total
+            }
 
         # Get user's liked and bookmarked content
         liked_query = select(Content).join(
@@ -796,16 +814,15 @@ async def get_recommendations(
         liked_result = await db.execute(liked_query)
         liked_content = liked_result.scalars().all()
 
-        # Get content IDs to exclude (already interacted with)
-        exclude_query = select(Interaction.content_id).where(
-            Interaction.user_id == current_user.id
-        )
-        exclude_result = await db.execute(exclude_query)
-        content_ids_to_exclude = [row[0] for row in exclude_result]
+        # Combine excluded IDs with already interacted content
+        all_excluded_ids = excluded_ids.union(set(content.id for content in liked_content))
 
         if not liked_content:
             # If no interactions yet, return latest papers
-            query = select(Content).order_by(Content.published_date.desc())
+            query = select(Content).where(
+                ~Content.id.in_(all_excluded_ids) if all_excluded_ids else true()
+            ).order_by(Content.published_date.desc())
+            
             query = query.offset((page - 1) * page_size).limit(page_size)
             result = await db.execute(query)
             content = result.scalars().all()
@@ -822,7 +839,7 @@ async def get_recommendations(
         similar_content = await similarity_search(
             avg_embedding,
             db,
-            content_ids_to_exclude=content_ids_to_exclude,
+            content_ids_to_exclude=list(all_excluded_ids),
             limit=page_size
         )
 
